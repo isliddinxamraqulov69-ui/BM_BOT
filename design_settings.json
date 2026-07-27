@@ -1,0 +1,120 @@
+{
+  "button_style": "primary",
+  "premium_emoji_id": "",
+  "button_designs": {
+    "send_phone": {
+      "style": "danger",
+      "emoji_id": "5406809207947142040"
+    },
+    "cancel": {
+      "style": "danger",
+      "emoji_id": ""
+    },
+    "about_school": {
+      "style": "primary",
+      "emoji_id": "5204173037468952659"
+    },
+    "teachers": {
+      "style": "primary",
+      "emoji_id": "5373039692574893940"
+    },
+    "directions": {
+      "style": "success",
+      "emoji_id": "5980808493018387732"
+    },
+    "prices": {
+      "style": "success",
+      "emoji_id": "5388974304710906586"
+    },
+    "registration": {
+      "style": "danger",
+      "emoji_id": "5197269100878907942"
+    },
+    "visit": {
+      "style": "danger",
+      "emoji_id": "5265002646397285605"
+    },
+    "education": {
+      "style": "primary",
+      "emoji_id": "5422870895280529977"
+    },
+    "schedule": {
+      "style": "primary",
+      "emoji_id": "5413704112220949842"
+    },
+    "faq": {
+      "style": "success",
+      "emoji_id": "5314504236132747481"
+    },
+    "location": {
+      "style": "success",
+      "emoji_id": "5391032818111363540"
+    },
+    "contact": {
+      "style": "success",
+      "emoji_id": "5465169893580086142"
+    },
+    "admin": {
+      "style": "primary",
+      "emoji_id": "6269458311381258421"
+    },
+    "map": {
+      "style": "primary",
+      "emoji_id": "5445023902801613254"
+    }
+  },
+  "message_emojis": {
+    "education": {
+      "text": "🎓",
+      "custom_id": null
+    },
+    "school": {
+      "text": "👍",
+      "custom_id": "5204173037468952659"
+    },
+    "application": {
+      "text": "🗒",
+      "custom_id": null
+    },
+    "visit": {
+      "text": "📅",
+      "custom_id": "5364233403300330811"
+    },
+    "success": {
+      "text": "✅",
+      "custom_id": "5462919317832082236"
+    },
+    "warning": {
+      "text": "⚠️",
+      "custom_id": "5447644880824181073"
+    },
+    "user": {
+      "text": "👤",
+      "custom_id": "5258011929993026890"
+    },
+    "phone": {
+      "text": "📱",
+      "custom_id": "5407025283456835913"
+    },
+    "child": {
+      "text": "👧🏻",
+      "custom_id": null
+    },
+    "age": {
+      "text": "🎂",
+      "custom_id": "5370999492914976897"
+    },
+    "time": {
+      "text": "🕐",
+      "custom_id": "5363857580777029543"
+    },
+    "location": {
+      "text": "📍",
+      "custom_id": "5391032818111363540"
+    },
+    "contact": {
+      "text": "☎️",
+      "custom_id": "5465169893580086142"
+    }
+  }
+}

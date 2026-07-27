@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.py[cod]
+.venv/
+bot.log
+bot-error.log
+_reference_Optima_Team_bot/
