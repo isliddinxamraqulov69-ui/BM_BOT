@@ -2,12 +2,15 @@ import asyncio
 import json
 import os
 import re
+import threading
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
-from aiogram import Bot, Dispatcher, F
+from flask import Flask, jsonify
+from waitress import serve
+from aiogram import BaseMiddleware, Bot, Dispatcher, F
 from aiogram.client.session.middlewares.base import BaseRequestMiddleware
-from aiogram.enums import MessageEntityType
+from aiogram.enums import ChatMemberStatus, MessageEntityType
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
@@ -39,6 +42,9 @@ if not TOKEN:
 # Qabul va tashrif arizalari boradigan Telegram ID
 ADMIN_ID = 7338097352
 SUPERADMIN_ID = 6907502858
+CHANNEL_USERNAME = "@BM_Bekobod"
+CHANNEL_URL = "https://t.me/BM_Bekobod"
+APPLICATIONS_PATH = Path(__file__).with_name("applications.json")
 
 # Administrator ma’lumotlari
 ADMIN_PHONE = "+998 94 835 66 66"
@@ -47,6 +53,42 @@ ADMIN_USERNAME = "@bm_qabul"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
+web_app = Flask(__name__)
+
+
+@web_app.get("/")
+def web_home():
+    return """
+    <!doctype html>
+    <html lang="uz">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Buxoro Maktabi Bot</title>
+        <style>
+          body { font-family: Arial, sans-serif; background: #f4f7fb; color: #172033;
+                 margin: 0; display: grid; min-height: 100vh; place-items: center; }
+          main { width: min(620px, calc(100% - 40px)); background: white; padding: 36px;
+                 border-radius: 18px; box-shadow: 0 12px 35px #1d35571a; }
+          h1 { color: #176b3a; margin-top: 0; } p { line-height: 1.65; }
+          .status { display: inline-block; color: #126b36; background: #e8f7ee;
+                    padding: 8px 13px; border-radius: 999px; font-weight: 700; }
+        </style>
+      </head>
+      <body><main>
+        <div class="status">● Tizim ishlamoqda</div>
+        <h1>Buxoro Maktabi Telegram boti</h1>
+        <p>Bot orqali maktab haqida ma’lumot olish, qabulga yozilish va
+        maktabga tashrif uchun so‘rov qoldirish mumkin.</p>
+        <p>Manzil: Bekobod shahri, sobiq Qishloq Qurilish banki binosi.</p>
+      </main></body>
+    </html>
+    """, 200
+
+
+@web_app.get("/health")
+def web_health():
+    return jsonify(status="ok", service="bm-qabul-bot"), 200
 
 
 # ==================================================
@@ -62,6 +104,7 @@ DESIGN = {
         "cancel": {"style": "danger", "emoji_id": ""},
     },
     "message_emojis": {},
+    "message_templates": {},
 }
 
 DESIGN_PATH = Path(__file__).with_name("design_settings.json")
@@ -115,6 +158,19 @@ MESSAGE_EMOJI_DEFAULTS = {
     key: fallback for key, _label, fallback in MESSAGE_EMOJI_CATALOG
 }
 
+MESSAGE_TEMPLATE_CATALOG = [
+    ("welcome", "Bosh sahifa xabari", "🎓 Assalomu alaykum!"),
+    ("school_info", "Maktab haqida", "🏫 BUXORO MAKTABI"),
+    ("teachers", "Ustozlar", "👨‍🏫 BUXORO MAKTABI USTOZLARI"),
+    ("directions", "Yo‘nalishlar", "📚 BUXORO MAKTABI YO‘NALISHLARI"),
+    ("prices", "Narxlar", "💰 YANGI O‘QUV YILI UCHUN OYLIK TO‘LOVLAR"),
+    ("education", "Ta’lim tizimi", "🎓 BUXORO MAKTABI TA’LIM TIZIMI"),
+    ("schedule", "Kun tartibi", "🍽 BUXORO MAKTABI KUN TARTIBI"),
+    ("faq", "Savol-javob", "❓ KO‘P SO‘RALADIGAN SAVOLLAR"),
+    ("location", "Manzil", "📍 BUXORO MAKTABI MANZILI"),
+    ("contact", "Bog‘lanish", "☎️ ADMINISTRATOR BILAN BOG‘LANISH"),
+]
+
 
 def load_design_settings():
     if not DESIGN_PATH.exists():
@@ -126,7 +182,7 @@ def load_design_settings():
     for key in ("button_style", "premium_emoji_id"):
         if key in stored:
             DESIGN[key] = stored[key]
-    for key in ("button_designs", "message_emojis"):
+    for key in ("button_designs", "message_emojis", "message_templates"):
         if isinstance(stored.get(key), dict):
             DESIGN[key].update(stored[key])
 
@@ -208,7 +264,19 @@ class DesignMessageMiddleware(BaseRequestMiddleware):
     async def __call__(self, make_request, bot_instance, method):
         text = getattr(method, "text", None)
         existing_entities = getattr(method, "entities", None)
-        if not isinstance(text, str) or existing_entities:
+        if not isinstance(text, str):
+            return await make_request(bot_instance, method)
+
+        for key, _label, prefix in MESSAGE_TEMPLATE_CATALOG:
+            custom_text = DESIGN.get("message_templates", {}).get(key)
+            if custom_text and text.startswith(prefix):
+                text = str(custom_text)
+                method.text = text
+                existing_entities = None
+                method.entities = None
+                break
+
+        if existing_entities:
             return await make_request(bot_instance, method)
 
         configured = DESIGN.get("message_emojis", {})
@@ -256,6 +324,50 @@ class DesignMessageMiddleware(BaseRequestMiddleware):
 
 
 bot.session.middleware(DesignMessageMiddleware())
+
+
+async def user_is_subscribed(user_id: int) -> bool:
+    if user_id in {ADMIN_ID, SUPERADMIN_ID}:
+        return True
+    try:
+        member = await bot.get_chat_member(CHANNEL_USERNAME, user_id)
+    except Exception as error:
+        print(f"Obunani tekshirishda xato: {error}")
+        return False
+    if member.status in {
+        ChatMemberStatus.CREATOR,
+        ChatMemberStatus.ADMINISTRATOR,
+        ChatMemberStatus.MEMBER,
+    }:
+        return True
+    return bool(
+        member.status == ChatMemberStatus.RESTRICTED
+        and getattr(member, "is_member", False)
+    )
+
+
+class SubscriptionMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        user = getattr(event, "from_user", None)
+        callback_data = getattr(event, "data", "")
+        if not user or callback_data == "subscription:check":
+            return await handler(event, data)
+        if await user_is_subscribed(user.id):
+            return await handler(event, data)
+        text = (
+            "🔒 Botdan foydalanish uchun avval BM Bekobod "
+            "kanaliga obuna bo‘ling, so‘ng ‘Tekshirish’ni bosing."
+        )
+        if isinstance(event, CallbackQuery):
+            await event.answer("Avval kanalga obuna bo‘ling", show_alert=True)
+            await event.message.answer(text, reply_markup=subscription_keyboard())
+        else:
+            await event.answer(text, reply_markup=subscription_keyboard())
+        return None
+
+
+dp.message.outer_middleware(SubscriptionMiddleware())
+dp.callback_query.outer_middleware(SubscriptionMiddleware())
 
 
 # ==================================================
@@ -342,6 +454,37 @@ def refresh_keyboards():
 refresh_keyboards()
 
 
+def info_back_button(existing_markup=None):
+    rows = []
+    if existing_markup:
+        rows.extend(existing_markup.inline_keyboard)
+    _style, emoji_id = button_appearance("⬅️ Orqaga qaytish", "back")
+    rows.append([
+        AiogramInlineKeyboardButton(
+            text=button_label("⬅️ Orqaga qaytish", emoji_id),
+            callback_data="nav:home",
+            style="success",
+            icon_custom_emoji_id=emoji_id,
+        )
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def subscription_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [AiogramInlineKeyboardButton(
+            text="📢 BM Bekobod kanaliga obuna bo‘lish",
+            url=CHANNEL_URL,
+            style="primary",
+        )],
+        [AiogramInlineKeyboardButton(
+            text="✅ Obunani tekshirish",
+            callback_data="subscription:check",
+            style="success",
+        )],
+    ])
+
+
 # ==================================================
 # QABUL FORMASI HOLATLARI
 # ==================================================
@@ -375,6 +518,10 @@ class MessageEmojiForm(StatesGroup):
     preview = State()
 
 
+class MessageTemplateForm(StatesGroup):
+    value = State()
+
+
 # ==================================================
 # YORDAMCHI FUNKSIYALAR
 # ==================================================
@@ -384,6 +531,41 @@ def get_uzbekistan_time() -> str:
     now = datetime.now(uzbekistan_timezone)
 
     return now.strftime("%d.%m.%Y | %H:%M")
+
+
+def load_applications():
+    if not APPLICATIONS_PATH.exists():
+        return []
+    try:
+        data = json.loads(APPLICATIONS_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def save_applications(applications):
+    temporary_path = APPLICATIONS_PATH.with_suffix(".tmp")
+    temporary_path.write_text(
+        json.dumps(applications, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    os.replace(temporary_path, APPLICATIONS_PATH)
+
+
+def remember_application(application_type: str, message: Message, data: dict):
+    applications = load_applications()
+    next_id = max((int(item.get("id", 0)) for item in applications), default=0) + 1
+    applications.append({
+        "id": next_id,
+        "type": application_type,
+        "created_at": get_uzbekistan_time(),
+        "telegram_id": message.from_user.id,
+        "telegram_name": message.from_user.full_name,
+        "username": message.from_user.username or "",
+        **data,
+    })
+    save_applications(applications)
+    return next_id
 
 
 def get_telegram_information(message: Message) -> str:
@@ -444,7 +626,7 @@ async def start_handler(message: Message, state: FSMContext):
     )
 
     if message.from_user.id == SUPERADMIN_ID:
-        await send_superadmin_panel(message)
+        await send_superadmin_panel(message, message.from_user.id)
 
 
 # ==================================================
@@ -490,7 +672,8 @@ async def school_info(message: Message):
         "✅ 2 mahal issiq ovqat\n"
         "✅ 08:00 dan 17:00 gacha ta’lim\n\n"
         "🎓 Buxoro Maktabi — farzandingiz kelajagi "
-        "uchun ishonchli tanlov!"
+        "uchun ishonchli tanlov!",
+        reply_markup=info_back_button(),
     )
 
 
@@ -512,7 +695,8 @@ async def teachers(message: Message):
         "✅ Doimiy nazorat va tahlil\n"
         "✅ Ota-onalar bilan muntazam aloqa\n\n"
         "Har bir o‘quvchining bilim darajasi va "
-        "qobiliyatidan kelib chiqib alohida yondashiladi."
+        "qobiliyatidan kelib chiqib alohida yondashiladi.",
+        reply_markup=info_back_button(),
     )
 
 
@@ -536,7 +720,8 @@ async def directions(message: Message):
         "♟ Shaxmat va shashka\n"
         "⚽ Futbol va sport mashg‘ulotlari\n\n"
         "O‘quvchilar uchun qo‘shimcha kurslar, "
-        "to‘garaklar va amaliy mashg‘ulotlar ham mavjud."
+        "to‘garaklar va amaliy mashg‘ulotlar ham mavjud.",
+        reply_markup=info_back_button(),
     )
 
 
@@ -556,7 +741,7 @@ async def prices(message: Message):
         "olish uchun administrator bilan bog‘laning.\n\n"
         f"📞 {ADMIN_PHONE}\n"
         f"✈️ {ADMIN_USERNAME}",
-        reply_markup=admin_button,
+        reply_markup=info_back_button(admin_button),
     )
 
 
@@ -579,7 +764,8 @@ async def education_system(message: Message):
         "✅ Ingliz tilida erkin muloqot qilishga tayyorlash\n"
         "✅ Mantiqiy va mustaqil fikrlashni rivojlantirish\n\n"
         "Maqsadimiz faqat baho emas, balki o‘quvchining "
-        "haqiqiy bilim va ko‘nikmaga ega bo‘lishidir."
+        "haqiqiy bilim va ko‘nikmaga ega bo‘lishidir.",
+        reply_markup=info_back_button(),
     )
 
 
@@ -600,7 +786,8 @@ async def daily_schedule(message: Message):
         "🍽 Ikkinchi mahal ovqat\n"
         "🕔 17:00 — darslarning yakunlanishi\n\n"
         "O‘quvchilar kun davomida ustozlar nazorati ostida "
-        "ta’lim oladi va bo‘sh vaqti mazmunli tashkil qilinadi."
+        "ta’lim oladi va bo‘sh vaqti mazmunli tashkil qilinadi.",
+        reply_markup=info_back_button(),
     )
 
 
@@ -778,9 +965,10 @@ async def registration_child_class(
 
     await state.update_data(child_class=message.text.strip())
     data = await state.get_data()
+    application_id = remember_application("qabul", message, data)
 
     admin_message = (
-        "🔔 YANGI QABUL ARIZASI\n\n"
+        f"🔔 YANGI QABUL ARIZASI #{application_id}\n\n"
         f"👤 Ota-ona: {data['parent_name']}\n"
         f"📱 Telefon: {data['phone']}\n"
         f"🧒 Farzand: {data['child_name']}\n"
@@ -956,9 +1144,10 @@ async def visit_time(
 
     await state.update_data(visit_time=message.text.strip())
     data = await state.get_data()
+    application_id = remember_application("tashrif", message, data)
 
     admin_message = (
-        "📅 YANGI TASHRIF SO‘ROVI\n\n"
+        f"📅 YANGI TASHRIF SO‘ROVI #{application_id}\n\n"
         f"👤 Ism-familiya: {data['parent_name']}\n"
         f"📱 Telefon: {data['phone']}\n"
         f"📆 Tashrif kuni: {data['visit_day']}\n"
@@ -1017,7 +1206,7 @@ async def frequently_asked_questions(message: Message):
         "belgilashingiz mumkin.\n\n"
         f"📞 {ADMIN_PHONE}\n"
         f"✈️ {ADMIN_USERNAME}",
-        reply_markup=admin_button,
+        reply_markup=info_back_button(admin_button),
     )
 
 
@@ -1036,7 +1225,7 @@ async def location(message: Message):
         "ariza qoldirishingiz mumkin.\n\n"
         f"📞 {ADMIN_PHONE}\n"
         f"✈️ {ADMIN_USERNAME}",
-        reply_markup=location_button,
+        reply_markup=info_back_button(location_button),
     )
 
 
@@ -1053,13 +1242,27 @@ async def contact(message: Message):
         "🕘 Ish vaqti: 08:30 dan 18:00 gacha\n\n"
         "Qabul, narxlar, sinflar va maktabga tashrif "
         "bo‘yicha administratorimizga murojaat qilishingiz mumkin.",
-        reply_markup=admin_button,
+        reply_markup=info_back_button(admin_button),
     )
 
 
 # ==================================================
 # INLINE MENYU VA NAVIGATSIYA
 # ==================================================
+
+@dp.callback_query(F.data == "subscription:check")
+async def subscription_check(call: CallbackQuery, state: FSMContext):
+    if not await user_is_subscribed(call.from_user.id):
+        return await call.answer(
+            "Obuna tasdiqlanmadi. Kanalga obuna bo‘lib qayta tekshiring.",
+            show_alert=True,
+        )
+    await state.clear()
+    await call.message.answer(
+        "✅ Obuna tasdiqlandi. Kerakli bo‘limni tanlang:",
+        reply_markup=main_menu,
+    )
+    await call.answer("Obuna tasdiqlandi ✅")
 
 @dp.callback_query(F.data.startswith("menu:"))
 async def inline_main_menu_handler(call: CallbackQuery, state: FSMContext):
@@ -1149,54 +1352,220 @@ def is_superadmin(user_id: int) -> bool:
     return user_id == SUPERADMIN_ID
 
 
-def superadmin_panel_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
+def is_admin(user_id: int) -> bool:
+    return user_id in {ADMIN_ID, SUPERADMIN_ID}
+
+
+def superadmin_panel_keyboard(user_id: int):
+    rows = [
         [AiogramInlineKeyboardButton(
+            text="📂 Arizalar ro‘yxati",
+            callback_data="applications:list",
+            style="success",
+        )],
+        [AiogramInlineKeyboardButton(
+            text="📝 Xabar matnlari",
+            callback_data="templates:list",
+            style="primary",
+        )],
+    ]
+    if is_superadmin(user_id):
+        rows.extend([[
+            AiogramInlineKeyboardButton(
             text="🎨 Tugmalar dizayni",
             callback_data="design:list:0",
             style="primary",
-        )],
+            )
+        ],
         [AiogramInlineKeyboardButton(
             text="✨ Xabar emojilari",
             callback_data="msgemoji:list",
             style="success",
         )],
-    ])
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def send_superadmin_panel(target, edit=False):
+async def send_superadmin_panel(target, user_id: int, edit=False):
     text = (
-        "👑 SUPERADMIN DIZAYN PANELI\n\n"
-        "Tugmalar rangi va Premium emojilarini yoki "
-        "xabarlardagi emojilarni o‘zgartirishingiz mumkin."
+        "👑 ADMIN BOSHQARUV PANELI\n\n"
+        "Arizalarni ko‘rish va bot xabarlarini boshqarish mumkin."
     )
     if edit:
-        await target.edit_text(text, reply_markup=superadmin_panel_keyboard())
+        await target.edit_text(text, reply_markup=superadmin_panel_keyboard(user_id))
     else:
-        await target.answer(text, reply_markup=superadmin_panel_keyboard())
+        await target.answer(text, reply_markup=superadmin_panel_keyboard(user_id))
 
 
 @dp.message(Command("design"))
 @dp.message(Command("admin"))
 async def superadmin_panel_command(message: Message, state: FSMContext):
-    if not is_superadmin(message.from_user.id):
-        return await message.answer("Bu bo‘lim faqat superadmin uchun.")
+    if not is_admin(message.from_user.id):
+        return await message.answer("Bu bo‘lim faqat admin uchun.")
     await state.clear()
-    await send_superadmin_panel(message)
+    await send_superadmin_panel(message, message.from_user.id)
 
 
 @dp.callback_query(F.data == "design:home")
 async def design_home(call: CallbackQuery, state: FSMContext):
-    if not is_superadmin(call.from_user.id):
+    if not is_admin(call.from_user.id):
         return await call.answer("Ruxsat yo‘q", show_alert=True)
     await state.clear()
-    await send_superadmin_panel(call.message, edit=True)
+    await send_superadmin_panel(call.message, call.from_user.id, edit=True)
     await call.answer()
 
 
 @dp.callback_query(F.data == "noop")
 async def design_noop(call: CallbackQuery):
     await call.answer()
+
+
+@dp.callback_query(F.data == "applications:list")
+async def applications_list(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return await call.answer("Ruxsat yo‘q", show_alert=True)
+    await state.clear()
+    applications = load_applications()
+    recent = list(reversed(applications[-20:]))
+    rows = []
+    for item in recent:
+        kind = "Qabul" if item.get("type") == "qabul" else "Tashrif"
+        name = item.get("parent_name") or item.get("telegram_name") or "Noma’lum"
+        rows.append([AiogramInlineKeyboardButton(
+            text=f"#{item.get('id')} · {kind} · {str(name)[:24]}",
+            callback_data=f"applications:view:{item.get('id')}",
+        )])
+    rows.append([AiogramInlineKeyboardButton(text="🏠 Admin panel", callback_data="design:home")])
+    text = (
+        f"📂 ARIZALAR RO‘YXATI — jami {len(applications)} ta\n\n"
+        + ("Oxirgi 20 ta ariza:" if recent else "Hozircha ariza yo‘q.")
+    )
+    await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    await call.answer()
+
+
+@dp.callback_query(F.data.startswith("applications:view:"))
+async def application_view(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return await call.answer("Ruxsat yo‘q", show_alert=True)
+    application_id = int(call.data.rsplit(":", 1)[1])
+    item = next((row for row in load_applications() if int(row.get("id", 0)) == application_id), None)
+    if not item:
+        return await call.answer("Ariza topilmadi", show_alert=True)
+    if item.get("type") == "qabul":
+        details = (
+            f"📝 QABUL ARIZASI #{application_id}\n\n"
+            f"Ota-ona: {item.get('parent_name', '—')}\n"
+            f"Telefon: {item.get('phone', '—')}\n"
+            f"Farzand: {item.get('child_name', '—')}\n"
+            f"Yoshi: {item.get('child_age', '—')}\n"
+            f"Sinfi: {item.get('child_class', '—')}"
+        )
+    else:
+        details = (
+            f"📅 TASHRIF SO‘ROVI #{application_id}\n\n"
+            f"Ism: {item.get('parent_name', '—')}\n"
+            f"Telefon: {item.get('phone', '—')}\n"
+            f"Kun: {item.get('visit_day', '—')}\n"
+            f"Vaqt: {item.get('visit_time', '—')}"
+        )
+    details += (
+        f"\n\nTelegram: {item.get('telegram_name', '—')}"
+        f"\nUsername: @{item.get('username') or 'yo‘q'}"
+        f"\nTelegram ID: {item.get('telegram_id', '—')}"
+        f"\nYuborilgan: {item.get('created_at', '—')}"
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [AiogramInlineKeyboardButton(text="⬅️ Arizalar ro‘yxati", callback_data="applications:list")],
+        [AiogramInlineKeyboardButton(text="🏠 Admin panel", callback_data="design:home")],
+    ])
+    await call.message.edit_text(details, reply_markup=keyboard)
+    await call.answer()
+
+
+def message_templates_keyboard():
+    rows = [[AiogramInlineKeyboardButton(
+        text=("✅ " if DESIGN["message_templates"].get(key) else "📝 ") + label,
+        callback_data=f"templates:choose:{key}",
+    )] for key, label, _prefix in MESSAGE_TEMPLATE_CATALOG]
+    rows.append([AiogramInlineKeyboardButton(text="🏠 Admin panel", callback_data="design:home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@dp.callback_query(F.data == "templates:list")
+async def message_templates_list(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return await call.answer("Ruxsat yo‘q", show_alert=True)
+    await state.clear()
+    await call.message.edit_text(
+        "📝 XABAR MATNLARI\n\nO‘zgartirmoqchi bo‘lgan xabarni tanlang. "
+        "✅ belgisi o‘zgartirilgan xabarni bildiradi.",
+        reply_markup=message_templates_keyboard(),
+    )
+    await call.answer()
+
+
+@dp.callback_query(F.data.startswith("templates:choose:"))
+async def message_template_choose(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return await call.answer("Ruxsat yo‘q", show_alert=True)
+    key = call.data.rsplit(":", 1)[1]
+    item = next((row for row in MESSAGE_TEMPLATE_CATALOG if row[0] == key), None)
+    if not item:
+        return await call.answer("Xabar topilmadi", show_alert=True)
+    await state.set_state(MessageTemplateForm.value)
+    await state.update_data(message_template_key=key)
+    current = DESIGN["message_templates"].get(key)
+    preview = f"\n\nHozirgi maxsus matn:\n{current}" if current else "\n\nHozir standart matn ishlatilmoqda."
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [AiogramInlineKeyboardButton(text="♻️ Standartga qaytarish", callback_data=f"templates:reset:{key}", style="danger")],
+        [AiogramInlineKeyboardButton(text="⬅️ Xabarlar ro‘yxati", callback_data="templates:list")],
+    ])
+    await call.message.edit_text(
+        f"📝 {item[1]}\n\nYangi to‘liq xabar matnini yuboring.{preview}",
+        reply_markup=keyboard,
+    )
+    await call.answer()
+
+
+@dp.message(MessageTemplateForm.value)
+async def message_template_receive(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        await state.clear()
+        return
+    text = (message.text or "").strip()
+    if not text or len(text) > 4000:
+        return await message.answer("Xabar 1–4000 belgi oralig‘ida bo‘lishi kerak.")
+    data = await state.get_data()
+    key = data.get("message_template_key")
+    if not any(item[0] == key for item in MESSAGE_TEMPLATE_CATALOG):
+        await state.clear()
+        return await message.answer("Tahrirlash sessiyasi tugagan.")
+    DESIGN["message_templates"][key] = text
+    save_design_settings()
+    await state.clear()
+    await message.answer(
+        "✅ Xabar matni saqlandi.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [AiogramInlineKeyboardButton(text="📝 Xabarlar ro‘yxati", callback_data="templates:list")],
+            [AiogramInlineKeyboardButton(text="🏠 Admin panel", callback_data="design:home")],
+        ]),
+    )
+
+
+@dp.callback_query(F.data.startswith("templates:reset:"))
+async def message_template_reset(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return await call.answer("Ruxsat yo‘q", show_alert=True)
+    key = call.data.rsplit(":", 1)[1]
+    DESIGN["message_templates"].pop(key, None)
+    save_design_settings()
+    await state.clear()
+    await call.answer("Standart xabar qaytarildi ✅", show_alert=True)
+    await call.message.edit_text(
+        "📝 XABAR MATNLARI\n\nKerakli xabarni tanlang.",
+        reply_markup=message_templates_keyboard(),
+    )
 
 
 def design_catalog_keyboard(page=0):
@@ -1546,8 +1915,21 @@ async def unknown_message(message: Message):
 # BOTNI ISHGA TUSHIRISH
 # ==================================================
 
+def run_web_server():
+    port = int(os.getenv("PORT", "10000"))
+    serve(web_app, host="0.0.0.0", port=port, threads=4)
+
+
 async def main():
     print("Buxoro Maktabi bot ishga tushdi...")
+
+    web_thread = threading.Thread(
+        target=run_web_server,
+        name="flask-web-server",
+        daemon=True,
+    )
+    web_thread.start()
+    print(f"Flask web server ishga tushdi: 0.0.0.0:{os.getenv('PORT', '10000')}")
 
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
