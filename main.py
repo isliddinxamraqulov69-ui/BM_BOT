@@ -1943,7 +1943,7 @@ async def run_telegram_bot():
         SERVICE_STATE["bot"] = "running"
         SERVICE_STATE["bot_error"] = None
         print("Telegram polling ishga tushdi.", flush=True)
-        await dp.start_polling(bot)
+        await dp.start_polling(bot, handle_signals=False)
     except Exception as error:
         SERVICE_STATE["bot"] = "failed"
         SERVICE_STATE["bot_error"] = f"{type(error).__name__}: {error}"
