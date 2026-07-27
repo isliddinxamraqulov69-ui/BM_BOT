@@ -348,8 +348,6 @@ bot.session.middleware(DesignMessageMiddleware())
 
 
 async def user_is_subscribed(user_id: int) -> bool:
-    if user_id in {ADMIN_ID, SUPERADMIN_ID}:
-        return True
     try:
         member = await bot.get_chat_member(CHANNEL_USERNAME, user_id)
     except Exception as error:
