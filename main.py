@@ -54,6 +54,11 @@ ADMIN_USERNAME = "@bm_qabul"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 web_app = Flask(__name__)
+SERVICE_STATE = {
+    "web": "starting",
+    "bot": "starting",
+    "bot_error": None,
+}
 
 
 @web_app.get("/")
@@ -88,7 +93,23 @@ def web_home():
 
 @web_app.get("/health")
 def web_health():
-    return jsonify(status="ok", service="bm-qabul-bot"), 200
+    return jsonify(
+        status="ok",
+        service="bm-qabul-bot",
+        web=SERVICE_STATE["web"],
+        bot=SERVICE_STATE["bot"],
+        bot_error=SERVICE_STATE["bot_error"],
+    ), 200
+
+
+@web_app.get("/ready")
+def web_ready():
+    ready = SERVICE_STATE["web"] == "running" and SERVICE_STATE["bot"] == "running"
+    return jsonify(
+        ready=ready,
+        web=SERVICE_STATE["web"],
+        bot=SERVICE_STATE["bot"],
+    ), 200 if ready else 503
 
 
 # ==================================================
@@ -1915,25 +1936,45 @@ async def unknown_message(message: Message):
 # BOTNI ISHGA TUSHIRISH
 # ==================================================
 
-def run_web_server():
+async def run_telegram_bot():
+    try:
+        print("Buxoro Maktabi bot ishga tushmoqda...", flush=True)
+        await bot.delete_webhook(drop_pending_updates=True)
+        SERVICE_STATE["bot"] = "running"
+        SERVICE_STATE["bot_error"] = None
+        print("Telegram polling ishga tushdi.", flush=True)
+        await dp.start_polling(bot)
+    except Exception as error:
+        SERVICE_STATE["bot"] = "failed"
+        SERVICE_STATE["bot_error"] = f"{type(error).__name__}: {error}"
+        print(f"Telegram bot xatosi: {SERVICE_STATE['bot_error']}", flush=True)
+
+
+def run_bot_thread():
+    asyncio.run(run_telegram_bot())
+
+
+def main():
     port = int(os.getenv("PORT", "10000"))
-    serve(web_app, host="0.0.0.0", port=port, threads=4)
-
-
-async def main():
-    print("Buxoro Maktabi bot ishga tushdi...")
-
-    web_thread = threading.Thread(
-        target=run_web_server,
-        name="flask-web-server",
+    bot_thread = threading.Thread(
+        target=run_bot_thread,
+        name="telegram-bot-polling",
         daemon=True,
     )
-    web_thread.start()
-    print(f"Flask web server ishga tushdi: 0.0.0.0:{os.getenv('PORT', '10000')}")
+    bot_thread.start()
 
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    SERVICE_STATE["web"] = "running"
+    print(f"Flask web server ishga tushdi: 0.0.0.0:{port}", flush=True)
+    serve(
+        web_app,
+        host="0.0.0.0",
+        port=port,
+        threads=6,
+        connection_limit=100,
+        channel_timeout=120,
+        cleanup_interval=30,
+    )
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
