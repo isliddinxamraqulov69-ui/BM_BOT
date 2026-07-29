@@ -1659,6 +1659,70 @@ async def group_post_cancel_callback(call: CallbackQuery, state: FSMContext):
     await call.answer()
 
 
+@dp.message(F.forward_origin)
+async def direct_forwarded_post(message: Message, state: FSMContext):
+    if message.from_user.id != SUPERADMIN_ID or message.chat.type != ChatType.PRIVATE:
+        return
+    await state.clear()
+    await state.set_state(GroupPostForm.text)
+    await state.update_data(group_post_payload=group_post_payload(message))
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [AiogramInlineKeyboardButton(
+            text="📢 Kanalga chiqarish",
+            callback_data="forward_post:channel",
+            style="success",
+        )],
+        [AiogramInlineKeyboardButton(
+            text="📣 Guruhga chiqarish",
+            callback_data="forward_post:group",
+            style="success",
+        )],
+        [AiogramInlineKeyboardButton(
+            text="❌ Bekor qilish",
+            callback_data="group_post:cancel",
+            style="danger",
+        )],
+    ])
+    await message.answer(
+        "✅ Tayyor post qabul qilindi. Qayerga chiqarilsin?",
+        reply_markup=keyboard,
+    )
+
+
+@dp.callback_query(F.data.startswith("forward_post:"))
+async def direct_forwarded_post_destination(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id != SUPERADMIN_ID:
+        return await call.answer("Ruxsat yo‘q", show_alert=True)
+    destination = call.data.rsplit(":", 1)[1]
+    data = await state.get_data()
+    payload = data.get("group_post_payload")
+    if not payload:
+        return await call.answer("Forward qilingan post topilmadi", show_alert=True)
+    if destination == "group" and not int(DESIGN.get("target_group_id") or 0):
+        return await call.answer(
+            "Avval guruhda /setgroup yuboring", show_alert=True
+        )
+    await state.update_data(post_destination=destination)
+    destination_name = "kanalga" if destination == "channel" else "guruhga"
+    confirm = InlineKeyboardMarkup(inline_keyboard=[[
+        AiogramInlineKeyboardButton(
+            text=f"✅ {destination_name.capitalize()} yuborish",
+            callback_data="group_post:send",
+            style="success",
+        ),
+        AiogramInlineKeyboardButton(
+            text="❌ Bekor qilish",
+            callback_data="group_post:cancel",
+            style="danger",
+        ),
+    ]])
+    await call.message.edit_text(
+        f"Post tayyor. {destination_name.capitalize()} yuborilsinmi?",
+        reply_markup=confirm,
+    )
+    await call.answer()
+
+
 async def send_superadmin_panel(target, user_id: int, edit=False):
     text = (
         "👑 ADMIN BOSHQARUV PANELI\n\n"
