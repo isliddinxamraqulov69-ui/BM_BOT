@@ -1588,7 +1588,21 @@ def album_input_media(payload):
     return result
 
 
-def group_post_confirm_keyboard(destination_name):
+def group_post_payload_has_text(payload):
+    kind = payload.get("kind")
+    if kind == "album":
+        return any(item.get("caption") for item in payload.get("items", []))
+    if kind == "text":
+        return bool(payload.get("text"))
+    return bool(payload.get("caption"))
+
+
+def group_post_confirm_keyboard(destination_name, payload):
+    edit_label = (
+        "✏️ Matnni tahrirlash"
+        if group_post_payload_has_text(payload)
+        else "➕ Matn qo‘shish"
+    )
     return InlineKeyboardMarkup(inline_keyboard=[
         [AiogramInlineKeyboardButton(
             text=f"✅ {destination_name.capitalize()} yuborish",
@@ -1596,7 +1610,7 @@ def group_post_confirm_keyboard(destination_name):
             style="success",
         )],
         [AiogramInlineKeyboardButton(
-            text="✏️ Matnni tahrirlash",
+            text=edit_label,
             callback_data="group_post:edit",
             style="primary",
         )],
@@ -1624,6 +1638,9 @@ def group_post_payload_with_text(payload, text, entities=None):
     elif kind == "text":
         updated["text"] = text
         updated["entities"] = serialized_entities
+    elif kind == "copy":
+        updated["caption"] = text
+        updated["caption_entities"] = serialized_entities
     else:
         return None
     return updated
@@ -1689,6 +1706,8 @@ async def send_group_post(chat_id, payload, reply_markup):
     return await bot.copy_message(
         from_chat_id=payload["source_chat_id"],
         message_id=payload["source_message_id"],
+        caption=payload.get("caption"),
+        caption_entities=caption_entities,
         **common,
     )
 
@@ -1783,7 +1802,7 @@ async def show_group_post_preview(message: Message, state: FSMContext, payload):
         )
     await message.answer(
         f"Shu post {destination_name} yuborilsinmi?",
-        reply_markup=group_post_confirm_keyboard(destination_name),
+        reply_markup=group_post_confirm_keyboard(destination_name, payload),
     )
 
 
@@ -1834,11 +1853,6 @@ async def group_post_edit(call: CallbackQuery, state: FSMContext):
     payload = data.get("group_post_payload")
     if not payload:
         return await call.answer("Tahrirlanadigan post topilmadi", show_alert=True)
-    if payload.get("kind") == "copy":
-        return await call.answer(
-            "Bu xabar turining matnini tahrirlab bo‘lmaydi",
-            show_alert=True,
-        )
     await state.set_state(GroupPostForm.caption)
     await call.message.edit_text(
         "✏️ Yangi matnni yuboring. Rasm yoki albom bo‘lsa, matn uning tagiga yoziladi.\n\n"
@@ -1965,7 +1979,7 @@ async def direct_forwarded_post_destination(call: CallbackQuery, state: FSMConte
     destination_name = "kanalga" if destination == "channel" else "guruhga"
     await call.message.edit_text(
         f"Post tayyor. {destination_name.capitalize()} yuborilsinmi?",
-        reply_markup=group_post_confirm_keyboard(destination_name),
+        reply_markup=group_post_confirm_keyboard(destination_name, payload),
     )
     await call.answer()
 
