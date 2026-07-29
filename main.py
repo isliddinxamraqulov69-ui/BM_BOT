@@ -10,7 +10,7 @@ from flask import Flask, jsonify
 from waitress import serve
 from aiogram import BaseMiddleware, Bot, Dispatcher, F
 from aiogram.client.session.middlewares.base import BaseRequestMiddleware
-from aiogram.enums import ChatMemberStatus, MessageEntityType
+from aiogram.enums import ChatMemberStatus, ChatType, MessageEntityType
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
@@ -126,6 +126,7 @@ DESIGN = {
     },
     "message_emojis": {},
     "message_templates": {},
+    "target_group_id": 0,
 }
 
 DESIGN_PATH = Path(__file__).with_name("design_settings.json")
@@ -148,6 +149,8 @@ BUTTON_CATALOG = [
     ("back", "⬅️ Orqaga qaytish"),
     ("home", "🏠 Bosh menyu"),
     ("cancel", "❌ Bekor qilish"),
+    ("group_bot", "🤖 Botga o‘tish"),
+    ("group_admin", "👤 Adminga o‘tish"),
 ]
 BUTTON_LABELS = dict(BUTTON_CATALOG)
 DESIGN_PAGE_SIZE = 10
@@ -200,7 +203,7 @@ def load_design_settings():
         stored = json.loads(DESIGN_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return
-    for key in ("button_style", "premium_emoji_id"):
+    for key in ("button_style", "premium_emoji_id", "target_group_id"):
         if key in stored:
             DESIGN[key] = stored[key]
     for key in ("button_designs", "message_emojis", "message_templates"):
@@ -367,6 +370,11 @@ async def user_is_subscribed(user_id: int) -> bool:
 
 class SubscriptionMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
+        chat = getattr(event, "chat", None)
+        if isinstance(event, CallbackQuery):
+            chat = getattr(getattr(event, "message", None), "chat", None)
+        if chat and chat.type != ChatType.PRIVATE:
+            return await handler(event, data)
         user = getattr(event, "from_user", None)
         callback_data = getattr(event, "data", "")
         if not user or callback_data == "subscription:check":
@@ -385,6 +393,23 @@ class SubscriptionMiddleware(BaseMiddleware):
         return None
 
 
+class GroupSilenceMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        chat = getattr(event, "chat", None)
+        if isinstance(event, CallbackQuery):
+            chat = getattr(getattr(event, "message", None), "chat", None)
+        if not chat or chat.type == ChatType.PRIVATE:
+            return await handler(event, data)
+        text = getattr(event, "text", "") or ""
+        user = getattr(event, "from_user", None)
+        command = text.split(maxsplit=1)[0].split("@", 1)[0].lower()
+        if isinstance(event, Message) and command == "/setgroup" and user and user.id == SUPERADMIN_ID:
+            return await handler(event, data)
+        return None
+
+
+dp.message.outer_middleware(GroupSilenceMiddleware())
+dp.callback_query.outer_middleware(GroupSilenceMiddleware())
 dp.message.outer_middleware(SubscriptionMiddleware())
 dp.callback_query.outer_middleware(SubscriptionMiddleware())
 
@@ -539,6 +564,10 @@ class MessageEmojiForm(StatesGroup):
 
 class MessageTemplateForm(StatesGroup):
     value = State()
+
+
+class GroupPostForm(StatesGroup):
+    text = State()
 
 
 # ==================================================
@@ -1388,14 +1417,18 @@ def superadmin_panel_keyboard(user_id: int):
             style="primary",
         )],
     ]
-    if is_superadmin(user_id):
-        rows.extend([[
-            AiogramInlineKeyboardButton(
+    rows.append([AiogramInlineKeyboardButton(
             text="🎨 Tugmalar dizayni",
             callback_data="design:list:0",
             style="primary",
-            )
-        ],
+    )])
+    if is_superadmin(user_id):
+        rows.extend([
+        [AiogramInlineKeyboardButton(
+            text="📣 Guruh posti",
+            callback_data="group_post:start",
+            style="success",
+        )],
         [AiogramInlineKeyboardButton(
             text="✨ Xabar emojilari",
             callback_data="msgemoji:list",
@@ -1403,6 +1436,125 @@ def superadmin_panel_keyboard(user_id: int):
         )],
         ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def group_post_keyboard():
+    me = await bot.get_me()
+    bot_label = BUTTON_LABELS["group_bot"]
+    admin_label = BUTTON_LABELS["group_admin"]
+    _bot_style, bot_emoji = button_appearance(bot_label, "group_bot")
+    _admin_style, admin_emoji = button_appearance(admin_label, "group_admin")
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        AiogramInlineKeyboardButton(
+            text=button_label(bot_label, bot_emoji),
+            url=f"https://t.me/{me.username}?start=group",
+            style="success",
+            icon_custom_emoji_id=bot_emoji,
+        ),
+        AiogramInlineKeyboardButton(
+            text=button_label(admin_label, admin_emoji),
+            url=f"https://t.me/{ADMIN_USERNAME.lstrip('@')}",
+            style="success",
+            icon_custom_emoji_id=admin_emoji,
+        ),
+    ]])
+
+
+async def start_group_post(target, state: FSMContext):
+    if not int(DESIGN.get("target_group_id") or 0):
+        return await target.answer(
+            "Avval bot qo‘shilgan guruh ichida /setgroup buyrug‘ini yuboring."
+        )
+    await state.set_state(GroupPostForm.text)
+    await target.answer(
+        "Guruhga yuboriladigan xabar matnini kiriting.\n\n"
+        "Bekor qilish uchun /cancel yuboring."
+    )
+
+
+@dp.message(Command("setgroup"))
+async def set_target_group(message: Message):
+    if message.from_user.id != SUPERADMIN_ID or message.chat.type not in {
+        ChatType.GROUP, ChatType.SUPERGROUP,
+    }:
+        return
+    DESIGN["target_group_id"] = message.chat.id
+    save_design_settings()
+    await bot.send_message(
+        SUPERADMIN_ID,
+        f"✅ Guruh bog‘landi: {message.chat.title or message.chat.id}\n"
+        "Endi private chatda /post orqali xabar yuborishingiz mumkin.",
+    )
+
+
+@dp.message(Command("post"))
+async def group_post_command(message: Message, state: FSMContext):
+    if message.from_user.id != SUPERADMIN_ID or message.chat.type != ChatType.PRIVATE:
+        return
+    await state.clear()
+    await start_group_post(message, state)
+
+
+@dp.callback_query(F.data == "group_post:start")
+async def group_post_start_callback(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id != SUPERADMIN_ID:
+        return await call.answer("Ruxsat yo‘q", show_alert=True)
+    await state.clear()
+    await start_group_post(call.message, state)
+    await call.answer()
+
+
+@dp.message(GroupPostForm.text, Command("cancel"))
+async def group_post_cancel_command(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Guruh posti bekor qilindi.")
+
+
+@dp.message(GroupPostForm.text)
+async def group_post_preview(message: Message, state: FSMContext):
+    if message.from_user.id != SUPERADMIN_ID:
+        return
+    if not message.text:
+        return await message.answer("Post uchun matn yuboring.")
+    await state.update_data(group_post_text=message.text)
+    confirm = InlineKeyboardMarkup(inline_keyboard=[[
+        AiogramInlineKeyboardButton(
+            text="✅ Guruhga yuborish", callback_data="group_post:send", style="success"
+        ),
+        AiogramInlineKeyboardButton(
+            text="❌ Bekor qilish", callback_data="group_post:cancel", style="danger"
+        ),
+    ]])
+    await message.answer("Ko‘rinishi:")
+    await message.answer(message.text, reply_markup=await group_post_keyboard())
+    await message.answer("Shu post guruhga yuborilsinmi?", reply_markup=confirm)
+
+
+@dp.callback_query(F.data == "group_post:send")
+async def group_post_send(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id != SUPERADMIN_ID:
+        return await call.answer("Ruxsat yo‘q", show_alert=True)
+    data = await state.get_data()
+    post_text = data.get("group_post_text")
+    group_id = int(DESIGN.get("target_group_id") or 0)
+    if not post_text or not group_id:
+        return await call.answer("Post yoki guruh topilmadi", show_alert=True)
+    try:
+        await bot.send_message(group_id, post_text, reply_markup=await group_post_keyboard())
+    except Exception as error:
+        return await call.answer(f"Yuborilmadi: {str(error)[:120]}", show_alert=True)
+    await state.clear()
+    await call.message.edit_text("✅ Post guruhga yuborildi.")
+    await call.answer()
+
+
+@dp.callback_query(F.data == "group_post:cancel")
+async def group_post_cancel_callback(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id != SUPERADMIN_ID:
+        return await call.answer("Ruxsat yo‘q", show_alert=True)
+    await state.clear()
+    await call.message.edit_text("Guruh posti bekor qilindi.")
+    await call.answer()
 
 
 async def send_superadmin_panel(target, user_id: int, edit=False):
@@ -1627,7 +1779,7 @@ async def show_design_catalog(target, page=0, edit=False):
 
 @dp.callback_query(F.data.startswith("design:list:"))
 async def design_list_page(call: CallbackQuery, state: FSMContext):
-    if not is_superadmin(call.from_user.id):
+    if not is_admin(call.from_user.id):
         return await call.answer("Ruxsat yo‘q", show_alert=True)
     await state.clear()
     page = int(call.data.rsplit(":", 1)[1])
@@ -1637,7 +1789,7 @@ async def design_list_page(call: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("design:button:"))
 async def design_choose_button(call: CallbackQuery, state: FSMContext):
-    if not is_superadmin(call.from_user.id):
+    if not is_admin(call.from_user.id):
         return await call.answer("Ruxsat yo‘q", show_alert=True)
     key = call.data.rsplit(":", 1)[1]
     if key not in BUTTON_LABELS:
@@ -1671,7 +1823,7 @@ async def design_choose_button(call: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("design:style:"))
 async def design_choose_style(call: CallbackQuery, state: FSMContext):
-    if not is_superadmin(call.from_user.id):
+    if not is_admin(call.from_user.id):
         return await call.answer("Ruxsat yo‘q", show_alert=True)
     style = call.data.rsplit(":", 1)[1]
     if style not in {"default", "primary", "success", "danger"}:
@@ -1690,7 +1842,7 @@ async def design_choose_style(call: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("design:emoji:"))
 async def design_choose_emoji(call: CallbackQuery, state: FSMContext):
-    if not is_superadmin(call.from_user.id):
+    if not is_admin(call.from_user.id):
         return await call.answer("Ruxsat yo‘q", show_alert=True)
     choice = call.data.rsplit(":", 1)[1]
     if choice == "custom":
@@ -1728,7 +1880,7 @@ async def show_button_design_preview(message, state):
 
 @dp.message(DesignForm.emoji_id)
 async def receive_button_premium_emoji(message: Message, state: FSMContext):
-    if not is_superadmin(message.from_user.id):
+    if not is_admin(message.from_user.id):
         await state.clear()
         return
     entities = tuple(message.entities or ()) + tuple(message.caption_entities or ())
@@ -1761,7 +1913,7 @@ async def receive_button_premium_emoji(message: Message, state: FSMContext):
 
 @dp.callback_query(DesignForm.preview, F.data == "design:save")
 async def save_button_design(call: CallbackQuery, state: FSMContext):
-    if not is_superadmin(call.from_user.id):
+    if not is_admin(call.from_user.id):
         return await call.answer("Ruxsat yo‘q", show_alert=True)
     data = await state.get_data()
     key = data.get("design_key")
@@ -1781,7 +1933,7 @@ async def save_button_design(call: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("design:reset:"))
 async def reset_button_design(call: CallbackQuery, state: FSMContext):
-    if not is_superadmin(call.from_user.id):
+    if not is_admin(call.from_user.id):
         return await call.answer("Ruxsat yo‘q", show_alert=True)
     key = call.data.rsplit(":", 1)[1]
     DESIGN["button_designs"].pop(key, None)
