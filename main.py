@@ -19,6 +19,10 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton as AiogramInlineKeyboardButton,
     InlineKeyboardMarkup,
+    InputMediaAudio,
+    InputMediaDocument,
+    InputMediaPhoto,
+    InputMediaVideo,
     Message,
     MessageEntity,
     ReplyKeyboardRemove,
@@ -568,6 +572,12 @@ class MessageTemplateForm(StatesGroup):
 
 class GroupPostForm(StatesGroup):
     text = State()
+
+
+ALBUM_BUFFERS = {}
+ALBUM_TASKS = {}
+ALBUM_LOCK = asyncio.Lock()
+ALBUM_COLLECT_DELAY = 1.0
 
 
 # ==================================================
@@ -1489,8 +1499,53 @@ def group_post_payload(message: Message):
     return payload
 
 
+def album_post_payload(messages):
+    items = []
+    for message in sorted(messages, key=lambda item: item.message_id):
+        payload = group_post_payload(message)
+        if payload.get("kind") not in {"photo", "video", "document", "audio"}:
+            continue
+        items.append({
+            "kind": payload["kind"],
+            "file_id": payload["file_id"],
+            "caption": payload.get("caption"),
+        })
+    return {"kind": "album", "items": items}
+
+
+def album_input_media(payload):
+    media_types = {
+        "photo": InputMediaPhoto,
+        "video": InputMediaVideo,
+        "document": InputMediaDocument,
+        "audio": InputMediaAudio,
+    }
+    result = []
+    for item in payload.get("items", []):
+        media_type = media_types.get(item.get("kind"))
+        if not media_type:
+            continue
+        result.append(media_type(
+            media=item["file_id"],
+            caption=item.get("caption"),
+        ))
+    return result
+
+
 async def send_group_post(chat_id, payload, reply_markup):
     kind = payload.get("kind")
+    if kind == "album":
+        media = album_input_media(payload)
+        if len(media) < 2:
+            raise ValueError("Albom uchun kamida 2 ta rasm yoki video kerak")
+        sent_messages = await bot.send_media_group(chat_id=chat_id, media=media)
+        if reply_markup:
+            await bot.send_message(
+                chat_id=chat_id,
+                text="👇 Kerakli bo‘limni tanlang:",
+                reply_markup=reply_markup,
+            )
+        return sent_messages
     common = {"chat_id": chat_id, "reply_markup": reply_markup}
     if kind == "video":
         return await bot.send_video(
@@ -1531,7 +1586,8 @@ async def start_group_post(target, state: FSMContext, destination="group"):
     destination_name = "kanalga" if destination == "channel" else "guruhga"
     await target.answer(
         f"{destination_name.capitalize()} yuboriladigan xabarni jo‘nating. "
-        "Boshqa chatdagi xabarni forward qilishingiz ham mumkin.\n\n"
+        "Suriladigan albom uchun 2–10 ta rasmni bir vaqtda tanlab yuboring. "
+        "Boshqa chatdagi xabar yoki albomni forward qilishingiz ham mumkin.\n\n"
         "Bekor qilish uchun /cancel yuboring."
     )
 
@@ -1591,14 +1647,11 @@ async def group_post_cancel_command(message: Message, state: FSMContext):
     await message.answer("Guruh posti bekor qilindi.")
 
 
-@dp.message(GroupPostForm.text)
-async def group_post_preview(message: Message, state: FSMContext):
-    if message.from_user.id != SUPERADMIN_ID:
-        return
+async def show_group_post_preview(message: Message, state: FSMContext, payload):
     data = await state.get_data()
     destination = data.get("post_destination", "group")
     destination_name = "kanalga" if destination == "channel" else "guruhga"
-    await state.update_data(group_post_payload=group_post_payload(message))
+    await state.update_data(group_post_payload=payload)
     confirm = InlineKeyboardMarkup(inline_keyboard=[[
         AiogramInlineKeyboardButton(
             text=f"✅ {destination_name.capitalize()} yuborish",
@@ -1612,7 +1665,7 @@ async def group_post_preview(message: Message, state: FSMContext):
     try:
         await send_group_post(
             message.chat.id,
-            group_post_payload(message),
+            payload,
             await group_post_keyboard(),
         )
     except Exception as error:
@@ -1620,6 +1673,45 @@ async def group_post_preview(message: Message, state: FSMContext):
             f"Bu xabarni nusxalab bo‘lmadi: {str(error)[:150]}"
         )
     await message.answer(f"Shu post {destination_name} yuborilsinmi?", reply_markup=confirm)
+
+
+async def finish_album_collection(key):
+    await asyncio.sleep(ALBUM_COLLECT_DELAY)
+    async with ALBUM_LOCK:
+        album = ALBUM_BUFFERS.pop(key, None)
+        ALBUM_TASKS.pop(key, None)
+    if not album:
+        return
+    messages = album["messages"]
+    payload = album_post_payload(messages)
+    if len(payload["items"]) < 2:
+        return await messages[0].answer(
+            "Albom to‘liq kelmadi. Iltimos, kamida 2 ta rasmni bir vaqtda tanlab qayta yuboring."
+        )
+    await album["processor"](messages[0], album["state"], payload)
+
+
+async def collect_album(message: Message, state: FSMContext, processor):
+    key = (message.chat.id, message.media_group_id)
+    async with ALBUM_LOCK:
+        album = ALBUM_BUFFERS.setdefault(key, {
+            "messages": [],
+            "state": state,
+            "processor": processor,
+        })
+        album["messages"].append(message)
+        if key not in ALBUM_TASKS:
+            ALBUM_TASKS[key] = asyncio.create_task(finish_album_collection(key))
+
+
+@dp.message(GroupPostForm.text)
+async def group_post_preview(message: Message, state: FSMContext):
+    if message.from_user.id != SUPERADMIN_ID:
+        return
+    if message.media_group_id:
+        await collect_album(message, state, show_group_post_preview)
+        return
+    await show_group_post_preview(message, state, group_post_payload(message))
 
 
 @dp.callback_query(F.data == "group_post:send")
@@ -1665,7 +1757,14 @@ async def direct_forwarded_post(message: Message, state: FSMContext):
         return
     await state.clear()
     await state.set_state(GroupPostForm.text)
-    await state.update_data(group_post_payload=group_post_payload(message))
+    if message.media_group_id:
+        await collect_album(message, state, show_forwarded_post_destination)
+        return
+    await show_forwarded_post_destination(message, state, group_post_payload(message))
+
+
+async def show_forwarded_post_destination(message: Message, state: FSMContext, payload):
+    await state.update_data(group_post_payload=payload)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [AiogramInlineKeyboardButton(
             text="📢 Kanalga chiqarish",
