@@ -1465,6 +1465,62 @@ async def group_post_keyboard():
     ]])
 
 
+def group_post_payload(message: Message):
+    payload = {
+        "source_chat_id": message.chat.id,
+        "source_message_id": message.message_id,
+        "text": message.text,
+        "caption": message.caption,
+    }
+    if message.video:
+        payload.update(kind="video", file_id=message.video.file_id)
+    elif message.photo:
+        payload.update(kind="photo", file_id=message.photo[-1].file_id)
+    elif message.animation:
+        payload.update(kind="animation", file_id=message.animation.file_id)
+    elif message.document:
+        payload.update(kind="document", file_id=message.document.file_id)
+    elif message.audio:
+        payload.update(kind="audio", file_id=message.audio.file_id)
+    elif message.text:
+        payload.update(kind="text")
+    else:
+        payload.update(kind="copy")
+    return payload
+
+
+async def send_group_post(chat_id, payload, reply_markup):
+    kind = payload.get("kind")
+    common = {"chat_id": chat_id, "reply_markup": reply_markup}
+    if kind == "video":
+        return await bot.send_video(
+            video=payload["file_id"], caption=payload.get("caption"), **common
+        )
+    if kind == "photo":
+        return await bot.send_photo(
+            photo=payload["file_id"], caption=payload.get("caption"), **common
+        )
+    if kind == "animation":
+        return await bot.send_animation(
+            animation=payload["file_id"], caption=payload.get("caption"), **common
+        )
+    if kind == "document":
+        return await bot.send_document(
+            document=payload["file_id"], caption=payload.get("caption"), **common
+        )
+    if kind == "audio":
+        return await bot.send_audio(
+            audio=payload["file_id"], caption=payload.get("caption"), **common
+        )
+    if kind == "text":
+        return await bot.send_message(text=payload["text"], **common)
+    return await bot.copy_message(
+        from_chat_id=payload["source_chat_id"],
+        message_id=payload["source_message_id"],
+        **common,
+    )
+
+
 async def start_group_post(target, state: FSMContext, destination="group"):
     if destination == "group" and not int(DESIGN.get("target_group_id") or 0):
         return await target.answer(
@@ -1542,10 +1598,7 @@ async def group_post_preview(message: Message, state: FSMContext):
     data = await state.get_data()
     destination = data.get("post_destination", "group")
     destination_name = "kanalga" if destination == "channel" else "guruhga"
-    await state.update_data(
-        group_post_source_chat_id=message.chat.id,
-        group_post_source_message_id=message.message_id,
-    )
+    await state.update_data(group_post_payload=group_post_payload(message))
     confirm = InlineKeyboardMarkup(inline_keyboard=[[
         AiogramInlineKeyboardButton(
             text=f"✅ {destination_name.capitalize()} yuborish",
@@ -1557,11 +1610,10 @@ async def group_post_preview(message: Message, state: FSMContext):
     ]])
     await message.answer("Ko‘rinishi:")
     try:
-        await bot.copy_message(
-            chat_id=message.chat.id,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id,
-            reply_markup=await group_post_keyboard(),
+        await send_group_post(
+            message.chat.id,
+            group_post_payload(message),
+            await group_post_keyboard(),
         )
     except Exception as error:
         return await message.answer(
@@ -1575,8 +1627,7 @@ async def group_post_send(call: CallbackQuery, state: FSMContext):
     if call.from_user.id != SUPERADMIN_ID:
         return await call.answer("Ruxsat yo‘q", show_alert=True)
     data = await state.get_data()
-    source_chat_id = data.get("group_post_source_chat_id")
-    source_message_id = data.get("group_post_source_message_id")
+    payload = data.get("group_post_payload")
     destination = data.get("post_destination", "group")
     target_chat = (
         CHANNEL_USERNAME
@@ -1584,14 +1635,13 @@ async def group_post_send(call: CallbackQuery, state: FSMContext):
         else int(DESIGN.get("target_group_id") or 0)
     )
     destination_name = "kanalga" if destination == "channel" else "guruhga"
-    if not source_chat_id or not source_message_id or not target_chat:
+    if not payload or not target_chat:
         return await call.answer("Post yoki manzil topilmadi", show_alert=True)
     try:
-        await bot.copy_message(
-            chat_id=target_chat,
-            from_chat_id=source_chat_id,
-            message_id=source_message_id,
-            reply_markup=await group_post_keyboard(),
+        await send_group_post(
+            target_chat,
+            payload,
+            await group_post_keyboard(),
         )
     except Exception as error:
         return await call.answer(f"Yuborilmadi: {str(error)[:120]}", show_alert=True)
