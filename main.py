@@ -1430,6 +1430,11 @@ def superadmin_panel_keyboard(user_id: int):
             style="success",
         )],
         [AiogramInlineKeyboardButton(
+            text="📢 Kanal posti",
+            callback_data="channel_post:start",
+            style="success",
+        )],
+        [AiogramInlineKeyboardButton(
             text="✨ Xabar emojilari",
             callback_data="msgemoji:list",
             style="success",
@@ -1460,14 +1465,16 @@ async def group_post_keyboard():
     ]])
 
 
-async def start_group_post(target, state: FSMContext):
-    if not int(DESIGN.get("target_group_id") or 0):
+async def start_group_post(target, state: FSMContext, destination="group"):
+    if destination == "group" and not int(DESIGN.get("target_group_id") or 0):
         return await target.answer(
             "Avval bot qo‘shilgan guruh ichida /setgroup buyrug‘ini yuboring."
         )
     await state.set_state(GroupPostForm.text)
+    await state.update_data(post_destination=destination)
+    destination_name = "kanalga" if destination == "channel" else "guruhga"
     await target.answer(
-        "Guruhga yuboriladigan xabar matnini kiriting.\n\n"
+        f"{destination_name.capitalize()} yuboriladigan xabar matnini kiriting.\n\n"
         "Bekor qilish uchun /cancel yuboring."
     )
 
@@ -1495,12 +1502,29 @@ async def group_post_command(message: Message, state: FSMContext):
     await start_group_post(message, state)
 
 
+@dp.message(Command("channelpost"))
+async def channel_post_command(message: Message, state: FSMContext):
+    if message.from_user.id != SUPERADMIN_ID or message.chat.type != ChatType.PRIVATE:
+        return
+    await state.clear()
+    await start_group_post(message, state, "channel")
+
+
 @dp.callback_query(F.data == "group_post:start")
 async def group_post_start_callback(call: CallbackQuery, state: FSMContext):
     if call.from_user.id != SUPERADMIN_ID:
         return await call.answer("Ruxsat yo‘q", show_alert=True)
     await state.clear()
     await start_group_post(call.message, state)
+    await call.answer()
+
+
+@dp.callback_query(F.data == "channel_post:start")
+async def channel_post_start_callback(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id != SUPERADMIN_ID:
+        return await call.answer("Ruxsat yo‘q", show_alert=True)
+    await state.clear()
+    await start_group_post(call.message, state, "channel")
     await call.answer()
 
 
@@ -1516,10 +1540,14 @@ async def group_post_preview(message: Message, state: FSMContext):
         return
     if not message.text:
         return await message.answer("Post uchun matn yuboring.")
+    data = await state.get_data()
+    destination = data.get("post_destination", "group")
+    destination_name = "kanalga" if destination == "channel" else "guruhga"
     await state.update_data(group_post_text=message.text)
     confirm = InlineKeyboardMarkup(inline_keyboard=[[
         AiogramInlineKeyboardButton(
-            text="✅ Guruhga yuborish", callback_data="group_post:send", style="success"
+            text=f"✅ {destination_name.capitalize()} yuborish",
+            callback_data="group_post:send", style="success"
         ),
         AiogramInlineKeyboardButton(
             text="❌ Bekor qilish", callback_data="group_post:cancel", style="danger"
@@ -1527,7 +1555,7 @@ async def group_post_preview(message: Message, state: FSMContext):
     ]])
     await message.answer("Ko‘rinishi:")
     await message.answer(message.text, reply_markup=await group_post_keyboard())
-    await message.answer("Shu post guruhga yuborilsinmi?", reply_markup=confirm)
+    await message.answer(f"Shu post {destination_name} yuborilsinmi?", reply_markup=confirm)
 
 
 @dp.callback_query(F.data == "group_post:send")
@@ -1536,15 +1564,21 @@ async def group_post_send(call: CallbackQuery, state: FSMContext):
         return await call.answer("Ruxsat yo‘q", show_alert=True)
     data = await state.get_data()
     post_text = data.get("group_post_text")
-    group_id = int(DESIGN.get("target_group_id") or 0)
-    if not post_text or not group_id:
-        return await call.answer("Post yoki guruh topilmadi", show_alert=True)
+    destination = data.get("post_destination", "group")
+    target_chat = (
+        CHANNEL_USERNAME
+        if destination == "channel"
+        else int(DESIGN.get("target_group_id") or 0)
+    )
+    destination_name = "kanalga" if destination == "channel" else "guruhga"
+    if not post_text or not target_chat:
+        return await call.answer("Post yoki manzil topilmadi", show_alert=True)
     try:
-        await bot.send_message(group_id, post_text, reply_markup=await group_post_keyboard())
+        await bot.send_message(target_chat, post_text, reply_markup=await group_post_keyboard())
     except Exception as error:
         return await call.answer(f"Yuborilmadi: {str(error)[:120]}", show_alert=True)
     await state.clear()
-    await call.message.edit_text("✅ Post guruhga yuborildi.")
+    await call.message.edit_text(f"✅ Post {destination_name} yuborildi.")
     await call.answer()
 
 
