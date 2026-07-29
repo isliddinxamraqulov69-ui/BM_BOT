@@ -572,6 +572,7 @@ class MessageTemplateForm(StatesGroup):
 
 class GroupPostForm(StatesGroup):
     text = State()
+    caption = State()
 
 
 ALBUM_BUFFERS = {}
@@ -1532,6 +1533,43 @@ def album_input_media(payload):
     return result
 
 
+def group_post_confirm_keyboard(destination_name):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [AiogramInlineKeyboardButton(
+            text=f"✅ {destination_name.capitalize()} yuborish",
+            callback_data="group_post:send",
+            style="success",
+        )],
+        [AiogramInlineKeyboardButton(
+            text="✏️ Matnni tahrirlash",
+            callback_data="group_post:edit",
+            style="primary",
+        )],
+        [AiogramInlineKeyboardButton(
+            text="❌ Bekor qilish",
+            callback_data="group_post:cancel",
+            style="danger",
+        )],
+    ])
+
+
+def group_post_payload_with_text(payload, text):
+    updated = dict(payload)
+    kind = updated.get("kind")
+    if kind == "album":
+        items = [dict(item) for item in updated.get("items", [])]
+        if items:
+            items[0]["caption"] = text
+        updated["items"] = items
+    elif kind in {"photo", "video", "animation", "document", "audio"}:
+        updated["caption"] = text
+    elif kind == "text":
+        updated["text"] = text
+    else:
+        return None
+    return updated
+
+
 async def send_group_post(chat_id, payload, reply_markup):
     kind = payload.get("kind")
     if kind == "album":
@@ -1641,6 +1679,7 @@ async def channel_post_start_callback(call: CallbackQuery, state: FSMContext):
     await call.answer()
 
 
+@dp.message(GroupPostForm.caption, Command("cancel"))
 @dp.message(GroupPostForm.text, Command("cancel"))
 async def group_post_cancel_command(message: Message, state: FSMContext):
     await state.clear()
@@ -1652,15 +1691,6 @@ async def show_group_post_preview(message: Message, state: FSMContext, payload):
     destination = data.get("post_destination", "group")
     destination_name = "kanalga" if destination == "channel" else "guruhga"
     await state.update_data(group_post_payload=payload)
-    confirm = InlineKeyboardMarkup(inline_keyboard=[[
-        AiogramInlineKeyboardButton(
-            text=f"✅ {destination_name.capitalize()} yuborish",
-            callback_data="group_post:send", style="success"
-        ),
-        AiogramInlineKeyboardButton(
-            text="❌ Bekor qilish", callback_data="group_post:cancel", style="danger"
-        ),
-    ]])
     await message.answer("Ko‘rinishi:")
     try:
         await send_group_post(
@@ -1672,7 +1702,10 @@ async def show_group_post_preview(message: Message, state: FSMContext, payload):
         return await message.answer(
             f"Bu xabarni nusxalab bo‘lmadi: {str(error)[:150]}"
         )
-    await message.answer(f"Shu post {destination_name} yuborilsinmi?", reply_markup=confirm)
+    await message.answer(
+        f"Shu post {destination_name} yuborilsinmi?",
+        reply_markup=group_post_confirm_keyboard(destination_name),
+    )
 
 
 async def finish_album_collection(key):
@@ -1712,6 +1745,50 @@ async def group_post_preview(message: Message, state: FSMContext):
         await collect_album(message, state, show_group_post_preview)
         return
     await show_group_post_preview(message, state, group_post_payload(message))
+
+
+@dp.callback_query(F.data == "group_post:edit")
+async def group_post_edit(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id != SUPERADMIN_ID:
+        return await call.answer("Ruxsat yo‘q", show_alert=True)
+    data = await state.get_data()
+    payload = data.get("group_post_payload")
+    if not payload:
+        return await call.answer("Tahrirlanadigan post topilmadi", show_alert=True)
+    if payload.get("kind") == "copy":
+        return await call.answer(
+            "Bu xabar turining matnini tahrirlab bo‘lmaydi",
+            show_alert=True,
+        )
+    await state.set_state(GroupPostForm.caption)
+    await call.message.edit_text(
+        "✏️ Yangi matnni yuboring. Rasm yoki albom bo‘lsa, matn uning tagiga yoziladi.\n\n"
+        "Bekor qilish uchun /cancel yuboring."
+    )
+    await call.answer()
+
+
+@dp.message(GroupPostForm.caption)
+async def group_post_caption_receive(message: Message, state: FSMContext):
+    if message.from_user.id != SUPERADMIN_ID:
+        return
+    if not message.text:
+        return await message.answer("Iltimos, yangi matnni oddiy xabar shaklida yuboring.")
+    data = await state.get_data()
+    payload = data.get("group_post_payload")
+    if not payload:
+        await state.clear()
+        return await message.answer("Tahrirlanadigan post topilmadi.")
+    limit = 4096 if payload.get("kind") == "text" else 1024
+    if len(message.text) > limit:
+        return await message.answer(
+            f"Matn juda uzun. Eng ko‘pi {limit} ta belgi bo‘lishi mumkin."
+        )
+    updated_payload = group_post_payload_with_text(payload, message.text)
+    if not updated_payload:
+        return await message.answer("Bu xabar turining matnini tahrirlab bo‘lmaydi.")
+    await state.set_state(GroupPostForm.text)
+    await show_group_post_preview(message, state, updated_payload)
 
 
 @dp.callback_query(F.data == "group_post:send")
@@ -1803,21 +1880,9 @@ async def direct_forwarded_post_destination(call: CallbackQuery, state: FSMConte
         )
     await state.update_data(post_destination=destination)
     destination_name = "kanalga" if destination == "channel" else "guruhga"
-    confirm = InlineKeyboardMarkup(inline_keyboard=[[
-        AiogramInlineKeyboardButton(
-            text=f"✅ {destination_name.capitalize()} yuborish",
-            callback_data="group_post:send",
-            style="success",
-        ),
-        AiogramInlineKeyboardButton(
-            text="❌ Bekor qilish",
-            callback_data="group_post:cancel",
-            style="danger",
-        ),
-    ]])
     await call.message.edit_text(
         f"Post tayyor. {destination_name.capitalize()} yuborilsinmi?",
-        reply_markup=confirm,
+        reply_markup=group_post_confirm_keyboard(destination_name),
     )
     await call.answer()
 
