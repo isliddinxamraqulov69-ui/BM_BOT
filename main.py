@@ -288,66 +288,102 @@ def utf16_length(value: str) -> int:
     return len(value.encode("utf-16-le")) // 2
 
 
+def custom_emoji_id_from_message(message: Message):
+    entities = tuple(message.entities or ()) + tuple(message.caption_entities or ())
+    custom_ids = [
+        str(entity.custom_emoji_id)
+        for entity in entities
+        if entity.type == MessageEntityType.CUSTOM_EMOJI and entity.custom_emoji_id
+    ]
+    if len(custom_ids) == 1:
+        return custom_ids[0]
+
+    raw_text = (message.text or message.caption or "").strip()
+    if re.fullmatch(r"\d{10,24}", raw_text):
+        return raw_text
+    return None
+
+
+async def custom_emoji_id_is_valid(custom_emoji_id: str) -> bool:
+    try:
+        stickers = await bot.get_custom_emoji_stickers(
+            custom_emoji_ids=[str(custom_emoji_id)]
+        )
+    except TelegramBadRequest:
+        return False
+    return bool(stickers)
+
+
+def apply_message_emoji_design(text: str):
+    configured = DESIGN.get("message_emojis", {})
+    replacements = {
+        fallback: configured.get(key, {})
+        for key, _label, fallback in MESSAGE_EMOJI_CATALOG
+        if configured.get(key)
+    }
+    if not replacements:
+        return text, []
+
+    pattern = re.compile("|".join(map(re.escape, replacements)))
+    chunks = []
+    entities = []
+    source_position = 0
+    output_position = 0
+
+    for match in pattern.finditer(text):
+        prefix = text[source_position:match.start()]
+        chunks.append(prefix)
+        output_position += utf16_length(prefix)
+
+        config = replacements[match.group(0)]
+        replacement = str(config.get("text") or match.group(0))
+        chunks.append(replacement)
+        replacement_length = utf16_length(replacement)
+        custom_id = config.get("custom_id")
+        if custom_id:
+            entities.append(MessageEntity(
+                type=MessageEntityType.CUSTOM_EMOJI,
+                offset=output_position,
+                length=replacement_length,
+                custom_emoji_id=str(custom_id),
+            ))
+        output_position += replacement_length
+        source_position = match.end()
+
+    chunks.append(text[source_position:])
+    return "".join(chunks), entities
+
+
 class DesignMessageMiddleware(BaseRequestMiddleware):
     async def __call__(self, make_request, bot_instance, method):
         text = getattr(method, "text", None)
-        existing_entities = getattr(method, "entities", None)
+        text_field = "text"
+        entities_field = "entities"
+        if not isinstance(text, str):
+            text = getattr(method, "caption", None)
+            text_field = "caption"
+            entities_field = "caption_entities"
         if not isinstance(text, str):
             return await make_request(bot_instance, method)
+        existing_entities = getattr(method, entities_field, None)
 
-        for key, _label, prefix in MESSAGE_TEMPLATE_CATALOG:
-            custom_text = DESIGN.get("message_templates", {}).get(key)
-            if custom_text and text.startswith(prefix):
-                text = str(custom_text)
-                method.text = text
-                existing_entities = None
-                method.entities = None
-                break
+        if text_field == "text":
+            for key, _label, prefix in MESSAGE_TEMPLATE_CATALOG:
+                custom_text = DESIGN.get("message_templates", {}).get(key)
+                if custom_text and text.startswith(prefix):
+                    text = str(custom_text)
+                    setattr(method, text_field, text)
+                    existing_entities = None
+                    setattr(method, entities_field, None)
+                    break
 
         if existing_entities:
             return await make_request(bot_instance, method)
 
-        configured = DESIGN.get("message_emojis", {})
-        replacements = {
-            fallback: configured.get(key, {})
-            for key, _label, fallback in MESSAGE_EMOJI_CATALOG
-            if configured.get(key)
-        }
-        if not replacements:
-            return await make_request(bot_instance, method)
-
-        pattern = re.compile("|".join(map(re.escape, replacements)))
-        chunks = []
-        entities = []
-        source_position = 0
-        output_position = 0
-
-        for match in pattern.finditer(text):
-            prefix = text[source_position:match.start()]
-            chunks.append(prefix)
-            output_position += utf16_length(prefix)
-
-            config = replacements[match.group(0)]
-            replacement = str(config.get("text") or match.group(0))
-            chunks.append(replacement)
-            replacement_length = utf16_length(replacement)
-            custom_id = config.get("custom_id")
-            if custom_id:
-                entities.append(
-                    MessageEntity(
-                        type=MessageEntityType.CUSTOM_EMOJI,
-                        offset=output_position,
-                        length=replacement_length,
-                        custom_emoji_id=str(custom_id),
-                    )
-                )
-            output_position += replacement_length
-            source_position = match.end()
-
-        chunks.append(text[source_position:])
-        method.text = "".join(chunks)
+        text, entities = apply_message_emoji_design(text)
+        setattr(method, text_field, text)
         if entities:
-            method.entities = entities
+            setattr(method, entities_field, entities)
         return await make_request(bot_instance, method)
 
 
@@ -1482,6 +1518,8 @@ def group_post_payload(message: Message):
         "source_message_id": message.message_id,
         "text": message.text,
         "caption": message.caption,
+        "entities": serialize_message_entities(message.entities),
+        "caption_entities": serialize_message_entities(message.caption_entities),
     }
     if message.video:
         payload.update(kind="video", file_id=message.video.file_id)
@@ -1500,6 +1538,17 @@ def group_post_payload(message: Message):
     return payload
 
 
+def serialize_message_entities(entities):
+    return [
+        entity.model_dump(mode="json", exclude_none=True)
+        for entity in (entities or [])
+    ]
+
+
+def restore_message_entities(entities):
+    return [MessageEntity.model_validate(entity) for entity in (entities or [])]
+
+
 def album_post_payload(messages):
     items = []
     for message in sorted(messages, key=lambda item: item.message_id):
@@ -1510,6 +1559,7 @@ def album_post_payload(messages):
             "kind": payload["kind"],
             "file_id": payload["file_id"],
             "caption": payload.get("caption"),
+            "caption_entities": payload.get("caption_entities", []),
         })
     return {"kind": "album", "items": items}
 
@@ -1526,9 +1576,14 @@ def album_input_media(payload):
         media_type = media_types.get(item.get("kind"))
         if not media_type:
             continue
+        caption = item.get("caption")
+        caption_entities = restore_message_entities(item.get("caption_entities"))
+        if caption and not caption_entities:
+            caption, caption_entities = apply_message_emoji_design(caption)
         result.append(media_type(
             media=item["file_id"],
-            caption=item.get("caption"),
+            caption=caption,
+            caption_entities=caption_entities,
         ))
     return result
 
@@ -1553,18 +1608,22 @@ def group_post_confirm_keyboard(destination_name):
     ])
 
 
-def group_post_payload_with_text(payload, text):
+def group_post_payload_with_text(payload, text, entities=None):
     updated = dict(payload)
+    serialized_entities = serialize_message_entities(entities)
     kind = updated.get("kind")
     if kind == "album":
         items = [dict(item) for item in updated.get("items", [])]
         if items:
             items[0]["caption"] = text
+            items[0]["caption_entities"] = serialized_entities
         updated["items"] = items
     elif kind in {"photo", "video", "animation", "document", "audio"}:
         updated["caption"] = text
+        updated["caption_entities"] = serialized_entities
     elif kind == "text":
         updated["text"] = text
+        updated["entities"] = serialized_entities
     else:
         return None
     return updated
@@ -1585,28 +1644,48 @@ async def send_group_post(chat_id, payload, reply_markup):
             )
         return sent_messages
     common = {"chat_id": chat_id, "reply_markup": reply_markup}
+    caption_entities = restore_message_entities(payload.get("caption_entities"))
     if kind == "video":
         return await bot.send_video(
-            video=payload["file_id"], caption=payload.get("caption"), **common
+            video=payload["file_id"],
+            caption=payload.get("caption"),
+            caption_entities=caption_entities,
+            **common,
         )
     if kind == "photo":
         return await bot.send_photo(
-            photo=payload["file_id"], caption=payload.get("caption"), **common
+            photo=payload["file_id"],
+            caption=payload.get("caption"),
+            caption_entities=caption_entities,
+            **common,
         )
     if kind == "animation":
         return await bot.send_animation(
-            animation=payload["file_id"], caption=payload.get("caption"), **common
+            animation=payload["file_id"],
+            caption=payload.get("caption"),
+            caption_entities=caption_entities,
+            **common,
         )
     if kind == "document":
         return await bot.send_document(
-            document=payload["file_id"], caption=payload.get("caption"), **common
+            document=payload["file_id"],
+            caption=payload.get("caption"),
+            caption_entities=caption_entities,
+            **common,
         )
     if kind == "audio":
         return await bot.send_audio(
-            audio=payload["file_id"], caption=payload.get("caption"), **common
+            audio=payload["file_id"],
+            caption=payload.get("caption"),
+            caption_entities=caption_entities,
+            **common,
         )
     if kind == "text":
-        return await bot.send_message(text=payload["text"], **common)
+        return await bot.send_message(
+            text=payload["text"],
+            entities=restore_message_entities(payload.get("entities")),
+            **common,
+        )
     return await bot.copy_message(
         from_chat_id=payload["source_chat_id"],
         message_id=payload["source_message_id"],
@@ -1784,7 +1863,11 @@ async def group_post_caption_receive(message: Message, state: FSMContext):
         return await message.answer(
             f"Matn juda uzun. Eng ko‘pi {limit} ta belgi bo‘lishi mumkin."
         )
-    updated_payload = group_post_payload_with_text(payload, message.text)
+    updated_payload = group_post_payload_with_text(
+        payload,
+        message.text,
+        message.entities,
+    )
     if not updated_payload:
         return await message.answer("Bu xabar turining matnini tahrirlab bo‘lmaydi.")
     await state.set_state(GroupPostForm.text)
@@ -2178,8 +2261,8 @@ async def design_choose_emoji(call: CallbackQuery, state: FSMContext):
     if choice == "custom":
         await state.set_state(DesignForm.emoji_id)
         await call.message.edit_text(
-            "Bitta Telegram Premium animatsion emojisini yuboring. "
-            "Emoji ID avtomatik aniqlanadi."
+            "Bitta Telegram Premium animatsion emojisini yoki uning raqamli ID sini yuboring. "
+            "Masalan: 5204173037468952659"
         )
         return await call.answer()
     await state.update_data(design_emoji=None)
@@ -2213,23 +2296,22 @@ async def receive_button_premium_emoji(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         await state.clear()
         return
-    entities = tuple(message.entities or ()) + tuple(message.caption_entities or ())
-    custom_ids = [
-        entity.custom_emoji_id
-        for entity in entities
-        if entity.type == MessageEntityType.CUSTOM_EMOJI and entity.custom_emoji_id
-    ]
-    if len(custom_ids) != 1:
-        return await message.answer("Faqat bitta Telegram Premium emoji yuboring.")
-    await state.update_data(design_emoji=custom_ids[0])
+    custom_emoji_id = custom_emoji_id_from_message(message)
+    if not custom_emoji_id:
+        return await message.answer(
+            "Bitta Telegram Premium emoji yoki faqat uning raqamli ID sini yuboring."
+        )
+    if not await custom_emoji_id_is_valid(custom_emoji_id):
+        return await message.answer("Bu Premium emoji ID Telegram tomonidan topilmadi.")
+    await state.update_data(design_emoji=custom_emoji_id)
     data = await state.get_data()
     key = data.get("design_key")
     style = data.get("design_style", "default")
     preview = AiogramInlineKeyboardButton(
-        text=button_label(BUTTON_LABELS[key], custom_ids[0]),
+        text=button_label(BUTTON_LABELS[key], custom_emoji_id),
         callback_data="noop",
         style=None if style == "default" else style,
-        icon_custom_emoji_id=custom_ids[0],
+        icon_custom_emoji_id=custom_emoji_id,
     )
     await state.set_state(DesignForm.preview)
     await message.answer(
@@ -2325,7 +2407,7 @@ async def message_emoji_choose(call: CallbackQuery, state: FSMContext):
         [AiogramInlineKeyboardButton(text="⬅️ Ro‘yxat", callback_data="msgemoji:list")],
     ])
     await call.message.edit_text(
-        f"{item[1]} uchun yangi oddiy emoji yoki bitta Premium emoji yuboring:",
+        f"{item[1]} uchun yangi oddiy emoji, Premium emoji yoki uning raqamli ID sini yuboring:",
         reply_markup=keyboard,
     )
     await call.answer()
@@ -2341,18 +2423,22 @@ async def message_emoji_receive(message: Message, state: FSMContext):
     if key not in MESSAGE_EMOJI_DEFAULTS:
         await state.clear()
         return await message.answer("Sozlash sessiyasi tugagan.")
-    entities = tuple(message.entities or ()) + tuple(message.caption_entities or ())
-    custom_ids = [
-        entity.custom_emoji_id
-        for entity in entities
-        if entity.type == MessageEntityType.CUSTOM_EMOJI and entity.custom_emoji_id
-    ]
     raw_text = (message.text or message.caption or "").strip()
-    if custom_ids:
-        config = {"text": raw_text or MESSAGE_EMOJI_DEFAULTS[key], "custom_id": custom_ids[0]}
+    custom_emoji_id = custom_emoji_id_from_message(message)
+    if custom_emoji_id:
+        if not await custom_emoji_id_is_valid(custom_emoji_id):
+            return await message.answer("Bu Premium emoji ID Telegram tomonidan topilmadi.")
+        has_custom_entity = any(
+            entity.type == MessageEntityType.CUSTOM_EMOJI
+            for entity in tuple(message.entities or ()) + tuple(message.caption_entities or ())
+        )
+        fallback_text = raw_text if has_custom_entity else MESSAGE_EMOJI_DEFAULTS[key]
+        config = {"text": fallback_text, "custom_id": custom_emoji_id}
     else:
         if not raw_text or len(raw_text) > 16:
-            return await message.answer("Faqat bitta emoji yuboring.")
+            return await message.answer(
+                "Bitta oddiy emoji, Premium emoji yoki uning raqamli ID sini yuboring."
+            )
         config = {"text": raw_text, "custom_id": None}
     await state.update_data(message_emoji_config=config)
     await state.set_state(MessageEmojiForm.preview)
@@ -2362,8 +2448,18 @@ async def message_emoji_receive(message: Message, state: FSMContext):
         style="success",
     )
     try:
+        preview_text = f"Namuna: {config['text']} Xabar dizayni"
+        preview_entities = None
+        if config["custom_id"]:
+            preview_entities = [MessageEntity(
+                type=MessageEntityType.CUSTOM_EMOJI,
+                offset=utf16_length("Namuna: "),
+                length=utf16_length(config["text"]),
+                custom_emoji_id=config["custom_id"],
+            )]
         await message.answer(
-            f"Namuna: {config['text']} Xabar dizayni",
+            preview_text,
+            entities=preview_entities,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[preview_button]]),
         )
     except TelegramBadRequest:
