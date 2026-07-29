@@ -1474,7 +1474,8 @@ async def start_group_post(target, state: FSMContext, destination="group"):
     await state.update_data(post_destination=destination)
     destination_name = "kanalga" if destination == "channel" else "guruhga"
     await target.answer(
-        f"{destination_name.capitalize()} yuboriladigan xabar matnini kiriting.\n\n"
+        f"{destination_name.capitalize()} yuboriladigan xabarni jo‘nating. "
+        "Boshqa chatdagi xabarni forward qilishingiz ham mumkin.\n\n"
         "Bekor qilish uchun /cancel yuboring."
     )
 
@@ -1538,12 +1539,13 @@ async def group_post_cancel_command(message: Message, state: FSMContext):
 async def group_post_preview(message: Message, state: FSMContext):
     if message.from_user.id != SUPERADMIN_ID:
         return
-    if not message.text:
-        return await message.answer("Post uchun matn yuboring.")
     data = await state.get_data()
     destination = data.get("post_destination", "group")
     destination_name = "kanalga" if destination == "channel" else "guruhga"
-    await state.update_data(group_post_text=message.text)
+    await state.update_data(
+        group_post_source_chat_id=message.chat.id,
+        group_post_source_message_id=message.message_id,
+    )
     confirm = InlineKeyboardMarkup(inline_keyboard=[[
         AiogramInlineKeyboardButton(
             text=f"✅ {destination_name.capitalize()} yuborish",
@@ -1554,7 +1556,17 @@ async def group_post_preview(message: Message, state: FSMContext):
         ),
     ]])
     await message.answer("Ko‘rinishi:")
-    await message.answer(message.text, reply_markup=await group_post_keyboard())
+    try:
+        await bot.copy_message(
+            chat_id=message.chat.id,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+            reply_markup=await group_post_keyboard(),
+        )
+    except Exception as error:
+        return await message.answer(
+            f"Bu xabarni nusxalab bo‘lmadi: {str(error)[:150]}"
+        )
     await message.answer(f"Shu post {destination_name} yuborilsinmi?", reply_markup=confirm)
 
 
@@ -1563,7 +1575,8 @@ async def group_post_send(call: CallbackQuery, state: FSMContext):
     if call.from_user.id != SUPERADMIN_ID:
         return await call.answer("Ruxsat yo‘q", show_alert=True)
     data = await state.get_data()
-    post_text = data.get("group_post_text")
+    source_chat_id = data.get("group_post_source_chat_id")
+    source_message_id = data.get("group_post_source_message_id")
     destination = data.get("post_destination", "group")
     target_chat = (
         CHANNEL_USERNAME
@@ -1571,10 +1584,15 @@ async def group_post_send(call: CallbackQuery, state: FSMContext):
         else int(DESIGN.get("target_group_id") or 0)
     )
     destination_name = "kanalga" if destination == "channel" else "guruhga"
-    if not post_text or not target_chat:
+    if not source_chat_id or not source_message_id or not target_chat:
         return await call.answer("Post yoki manzil topilmadi", show_alert=True)
     try:
-        await bot.send_message(target_chat, post_text, reply_markup=await group_post_keyboard())
+        await bot.copy_message(
+            chat_id=target_chat,
+            from_chat_id=source_chat_id,
+            message_id=source_message_id,
+            reply_markup=await group_post_keyboard(),
+        )
     except Exception as error:
         return await call.answer(f"Yuborilmadi: {str(error)[:120]}", show_alert=True)
     await state.clear()
