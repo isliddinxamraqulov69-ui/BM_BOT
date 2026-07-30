@@ -845,6 +845,7 @@ class AIAssistantForm(StatesGroup):
 
 
 AI_HISTORY = {}
+AI_LOCKS = {}
 AI_SYSTEM_PROMPT = """Siz Buxoro Maktabi Bekobod Telegram botining yordamchisisiz.
 Foydalanuvchi qaysi tilda yozsa, o‘sha tilda javob bering: o‘zbekcha yoki ruscha.
 Maktab haqida faqat botdagi ma’lum va tasdiqlangan ma’lumotlardan foydalaning.
@@ -1173,10 +1174,15 @@ async def ai_question(message: Message, state: FSMContext):
         return await message.answer("Iltimos, savolingizni matn ko‘rinishida yuboring.")
 
     user_id = message.from_user.id
+    lock = AI_LOCKS.setdefault(user_id, asyncio.Lock())
+    if lock.locked():
+        return await message.answer("⏳ Avvalgi savolingizga javob tayyorlanmoqda. Iltimos, bir oz kuting.")
+    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
     history = AI_HISTORY.setdefault(user_id, [])
     history.append({"role": "user", "content": question})
     history[:] = history[-8:]
     try:
+      async with lock:
         contents = [
             {
                 "role": "model" if item["role"] == "assistant" else "user",
@@ -1184,16 +1190,16 @@ async def ai_question(message: Message, state: FSMContext):
             }
             for item in history
         ]
-        response = await asyncio.to_thread(
-            gemini_client.models.generate_content,
-            model=GEMINI_MODEL,
-            contents=contents,
-            config=genai_types.GenerateContentConfig(
-                system_instruction=AI_SYSTEM_PROMPT,
-                max_output_tokens=900,
-                temperature=0.35,
-            ),
-        )
+        response = await asyncio.wait_for(asyncio.to_thread(
+                gemini_client.models.generate_content,
+                model=GEMINI_MODEL,
+                contents=contents,
+                config=genai_types.GenerateContentConfig(
+                    system_instruction=AI_SYSTEM_PROMPT,
+                    max_output_tokens=900,
+                    temperature=0.35,
+                ),
+            ), timeout=25)
         answer = (response.text or "").strip()
     except Exception as error:
         print(f"AI javobida xato: {error}", flush=True)
