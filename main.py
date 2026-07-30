@@ -821,7 +821,10 @@ Foydalanuvchi qaysi tilda yozsa, o‘sha tilda javob bering: o‘zbekcha yoki ru
 Maktab haqida faqat botdagi ma’lum va tasdiqlangan ma’lumotlardan foydalaning.
 Maktab kurslari haqida so‘ralsa, kurs narxi 400 000 so‘m ekanini ayting va batafsil ma’lumot uchun administratorga yo‘naltiring.
 Savolga javob topa olmasangiz, taxmin qilmang; administratorga murojaat qilishni tavsiya qiling.
-Javoblarni qisqa, muloyim va tushunarli yozing.
+Javoblarni muloyim, to‘liq va tushunarli yozing. Kerak bo‘lsa sarlavha, punktlar va bosqichlardan foydalaning.
+Ota-onaga muhim ma’lumotlarni to‘liq tushuntiring: narx, vaqt, manzil, qabul tartibi va keyingi qadamni alohida ko‘rsating.
+Javobni odatda 3–8 ta mazmunli gap yoki punkt bilan bering; savol oddiy bo‘lsa, ortiqcha cho‘zmay javob bering.
+Har bir javob oxirida kerak bo‘lsa administrator bilan bog‘lanish yo‘lini ko‘rsating.
 
 Administrator: @bm_qabul, telefon: +998 94 835 66 66.
 Maktab: Bekobod shahridagi Buxoro Maktabi, 1–11-sinflar, matematika va ingliz tili yo‘nalishlari, qabul va tashrif bot orqali amalga oshiriladi.
@@ -1158,8 +1161,8 @@ async def ai_question(message: Message, state: FSMContext):
             contents=contents,
             config=genai_types.GenerateContentConfig(
                 system_instruction=AI_SYSTEM_PROMPT,
-                max_output_tokens=500,
-                temperature=0.2,
+                max_output_tokens=900,
+                temperature=0.35,
             ),
         )
         answer = (response.text or "").strip()
