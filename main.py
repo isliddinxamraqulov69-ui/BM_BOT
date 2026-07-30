@@ -27,6 +27,7 @@ from aiogram.types import (
     Message,
     MessageEntity,
     ReplyKeyboardRemove,
+    FSInputFile,
 )
 try:
     from google import genai
@@ -57,6 +58,7 @@ CHANNEL_USERNAME = "@BM_Bekobod"
 CHANNEL_URL = "https://t.me/BM_Bekobod"
 APPLICATIONS_PATH = Path(__file__).with_name("applications.json")
 USERS_PATH = Path(__file__).with_name("users.json")
+SCHOOL_VIDEO_PATH = Path(__file__).with_name("assets").joinpath("maktabimiz.mp4")
 
 # Administrator ma’lumotlari
 ADMIN_PHONE = "+998 94 835 66 66"
@@ -173,6 +175,7 @@ BUTTON_CATALOG = [
     ("ai", "🤖 AI yordamchi"),
     ("kitchen", "🍽 Oshxona"),
     ("classrooms", "🏫 Sinfxonalar"),
+    ("school_video", "🎥 Maktabimiz videosi"),
 ]
 BUTTON_LABELS = dict(BUTTON_CATALOG)
 DESIGN_PAGE_SIZE = 10
@@ -721,6 +724,7 @@ def refresh_keyboards():
             [InlineKeyboardButton(text="☎️ Bog‘lanish", callback_data="menu:contact")],
             [InlineKeyboardButton(text="🍽 Oshxona", callback_data="menu:kitchen")],
             [InlineKeyboardButton(text="🏫 Sinfxonalar", callback_data="menu:classrooms")],
+            [InlineKeyboardButton(text="🎥 Maktabimiz videosi", callback_data="menu:school_video")],
             [InlineKeyboardButton(text="🤖 AI yordamchi", callback_data="menu:ai")],
         ],
     )
@@ -1337,6 +1341,22 @@ def classrooms_keyboard():
     rows = [buttons[index:index + 2] for index in range(0, len(buttons), 2)]
     rows.append([styled_new_button("⬅️ Orqaga qaytish", "nav:home", "back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@dp.message(F.text.in_(button_texts("🎥 Maktabimiz videosi")))
+async def school_video(message: Message):
+    if not SCHOOL_VIDEO_PATH.exists():
+        await message.answer(
+            "🎥 Maktabimiz videosi hozircha yuklanmagan.",
+            reply_markup=info_back_button(),
+        )
+        return
+    await message.answer_video(
+        video=FSInputFile(SCHOOL_VIDEO_PATH),
+        caption="🎥 Buxoro Maktabi — maktabimiz videosi",
+        supports_streaming=True,
+        reply_markup=info_back_button(),
+    )
 
 
 def classroom_detail_keyboard():
@@ -1969,6 +1989,7 @@ async def inline_main_menu_handler(call: CallbackQuery, state: FSMContext):
         "ai": ai_start,
         "kitchen": kitchen,
         "classrooms": classrooms,
+        "school_video": school_video,
     }
     handler = handlers.get(action)
     if not handler:
