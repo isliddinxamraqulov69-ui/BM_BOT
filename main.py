@@ -54,6 +54,7 @@ SUPERADMIN_ID = 6907502858
 CHANNEL_USERNAME = "@BM_Bekobod"
 CHANNEL_URL = "https://t.me/BM_Bekobod"
 APPLICATIONS_PATH = Path(__file__).with_name("applications.json")
+USERS_PATH = Path(__file__).with_name("users.json")
 
 # Administrator ma’lumotlari
 ADMIN_PHONE = "+998 94 835 66 66"
@@ -808,6 +809,60 @@ def save_applications(applications):
     os.replace(temporary_path, APPLICATIONS_PATH)
 
 
+def load_users():
+    if not USERS_PATH.exists():
+        return []
+    try:
+        data = json.loads(USERS_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def save_users(users):
+    temporary_path = USERS_PATH.with_suffix(".tmp")
+    temporary_path.write_text(
+        json.dumps(users, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    os.replace(temporary_path, USERS_PATH)
+
+
+def remember_user(user):
+    users = load_users()
+    now = get_uzbekistan_time()
+    existing = next((item for item in users if item.get("telegram_id") == user.id), None)
+    if existing:
+        existing.update(
+            full_name=user.full_name,
+            username=user.username or "",
+            last_seen=now,
+        )
+    else:
+        users.append({
+            "telegram_id": user.id,
+            "full_name": user.full_name,
+            "username": user.username or "",
+            "first_seen": now,
+            "last_seen": now,
+        })
+    save_users(users)
+
+
+def statistics_text():
+    users = load_users()
+    applications = load_applications()
+    today = datetime.now(timezone(timedelta(hours=5))).strftime("%d.%m.%Y")
+    new_today = sum(str(item.get("first_seen", "")).startswith(today) for item in users)
+    return (
+        "📊 BOT STATISTIKASI\n\n"
+        f"👥 Jami foydalanuvchilar: {len(users)} ta\n"
+        f"🆕 Bugun qo‘shilganlar: {new_today} ta\n"
+        f"📝 Jami arizalar: {len(applications)} ta\n"
+        f"🤖 AI suhbatlari: {len(AI_HISTORY)} ta"
+    )
+
+
 def remember_application(application_type: str, message: Message, data: dict):
     applications = load_applications()
     next_id = max((int(item.get("id", 0)) for item in applications), default=0) + 1
@@ -854,6 +909,7 @@ async def cancel_process(message: Message, state: FSMContext):
 
 @dp.message(CommandStart())
 async def start_handler(message: Message, state: FSMContext):
+    remember_user(message.from_user)
     await state.clear()
 
     await message.answer(
@@ -1727,6 +1783,11 @@ def superadmin_panel_keyboard(user_id: int):
             style="success",
         )],
         [AiogramInlineKeyboardButton(
+            text="📊 Statistika",
+            callback_data="statistics:show",
+            style="success",
+        )],
+        [AiogramInlineKeyboardButton(
             text="📝 Xabar matnlari",
             callback_data="templates:list",
             style="primary",
@@ -2307,6 +2368,22 @@ async def applications_list(call: CallbackQuery, state: FSMContext):
         + ("Oxirgi 20 ta ariza:" if recent else "Hozircha ariza yo‘q.")
     )
     await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    await call.answer()
+
+
+@dp.callback_query(F.data == "statistics:show")
+async def statistics_show(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return await call.answer("Ruxsat yo‘q", show_alert=True)
+    await call.message.edit_text(
+        statistics_text(),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [AiogramInlineKeyboardButton(
+                text="🏠 Admin panel",
+                callback_data="design:home",
+            )],
+        ]),
+    )
     await call.answer()
 
 
