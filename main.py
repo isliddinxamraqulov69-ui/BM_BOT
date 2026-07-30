@@ -5,6 +5,7 @@ import re
 import threading
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 from flask import Flask, jsonify
 from waitress import serve
@@ -197,6 +198,143 @@ MESSAGE_TEMPLATE_CATALOG = [
     ("faq", "Savol-javob", "❓ KO‘P SO‘RALADIGAN SAVOLLAR"),
     ("location", "Manzil", "📍 BUXORO MAKTABI MANZILI"),
     ("contact", "Bog‘lanish", "☎️ ADMINISTRATOR BILAN BOG‘LANISH"),
+]
+
+TEAM_PAGE_BASE = "https://buxoromaktabibekobod.uz"
+TEAM_MEMBERS = [
+    {
+        "name": "Direktor",
+        "role": "Maktab direktori",
+        "short": "Rahbar va matematika mutaxassisi",
+        "full": "Oliy ma'lumotli rahbar. 7 yillik ish tajribasiga ega, matematika fanidan 5 yil dars bergan. Matematikadan A darajali sertifikat sohibi. 100 dan ortiq o'quvchining TDM va milliy sertifikatlarda yuqori natija qo'lga kiritishiga ko'maklashgan. 2 yil boshqaruv tizimida faoliyat yuritgan.",
+        "image": "/Direktor.webp",
+    },
+    {
+        "name": "Akmal To'lkinovich",
+        "role": "Direktor o'rinbosari",
+        "short": "11 yillik tajriba",
+        "full": "Oliy ma'lumotli mutaxassis. 11 yillik ish tajribasiga ega, direktor o'rinbosari lavozimida 4 yil faoliyat yuritgan. O'nlab ustozlarning oliy toifa va milliy sertifikatlarga ega bo'lishiga hissa qo'shgan.",
+        "image": "/Akmal-Tolkinovich.webp",
+    },
+    {
+        "name": "Saydullayev Abdumumin",
+        "role": "Matematika o'qituvchisi",
+        "short": "3 karra A+ va SAT 700",
+        "full": "Oliy ma'lumotli matematika o'qituvchisi. Milliy sertifikatni uch marta A+ darajada qo'lga kiritgan. SAT matematika bo'limidan 700 ball olgan. 5 yillik tajribaga ega, shogirdlari A va A+ natijalarga erishgan.",
+        "image": "/Math.webp",
+    },
+    {
+        "name": "Mr. Sherzod",
+        "role": "Ingliz tili o'qituvchisi",
+        "short": "5 yillik tajriba",
+        "full": "5 yillik tajribaga ega ingliz tili o'qituvchisi. O'quvchilarni qisqa vaqt ichida yuqori natijalarga olib chiqishi bilan tanilgan.",
+        "image": "/Mr.Sherzod.webp",
+    },
+    {
+        "name": "Faxriyor G'iyosov",
+        "role": "Biologiya o'qituvchisi",
+        "short": "4 yillik tajribaga ega kuchli o'qituvchi",
+        "full": "Biologiya o'qituvchisi. 4 yillik tajribaga ega kuchli mutaxassis. SamDU (Samarqand Davlat universiteti) biologiya fakultetini tamomlagan.",
+        "image": "/Faxriyor-Giyosov.webp",
+    },
+    {
+        "name": "Anorkulov Komronbek",
+        "role": "Ingliz tili o'qituvchisi",
+        "short": "IELTS overall 8.0",
+        "full": "IELTS overall 8.0, Reading va Listening bo'limlaridan 8.5 ball olgan. 4 yillik tajribaga ega. O'quvchilari IELTS 7.0 va 7.5 natijalarga erishgan.",
+        "image": "/English.webp",
+    },
+    {
+        "name": "Teshayev Feruzbek",
+        "role": "Matematika o'qituvchisi",
+        "short": "Prezident maktablariga tayyorlov",
+        "full": "Oliy ma'lumotli matematika o'qituvchisi. 3 yillik tajribaga ega. Prezident, Al-Xorazmiy va ixtisoslashtirilgan maktablar imtihonlariga tayyorlashda kuchli mutaxassis.",
+        "image": "/Teshayev-Feruzbek.webp",
+    },
+    {
+        "name": "Hakimbek G'ulomjonov",
+        "role": "Huquq va ingliz tili o'qituvchisi",
+        "short": "IELTS 7.0",
+        "full": "IELTS 7.0 darajasiga ega huquq va ingliz tili o'qituvchisi. O'quvchilarga huquqiy savodxonlik va ingliz tilini tizimli o'rgatadi.",
+        "image": "/LawXuquq.webp",
+    },
+    {
+        "name": "Mamadaliyev Abdulaziz",
+        "role": "Jismoniy tarbiya o'qituvchisi",
+        "short": "6 yillik tajriba",
+        "full": "Sport murabbiyligi bo'yicha sertifikatga ega. 2025-yilda futbol bo'yicha DXX kubogi chempioni, stol tennisi bo'yicha viloyat chempioni. Futbol, stol tennisi, shaxmat va badminton bo'yicha mahoratli murabbiy. 6 yillik tajribaga ega.",
+        "image": "/GYM.webp",
+    },
+    {
+        "name": "Xojimuratov Bekzod",
+        "role": "Tarix o'qituvchisi",
+        "short": "Tarix fanidan A+ darajadagi mutaxassis",
+        "full": "Oliy ma'lumotli tarix fani o'qituvchisi. Tarix fanidan milliy sertifikati A+ darajada. Shogirdlarini 100 foiz A va A+ natijalarga olib chiqqan. 6 yillik tajribaga ega.",
+        "image": "/History.webp",
+    },
+    {
+        "name": "Qarshiboyev Ma'ruf",
+        "role": "Matematika o'qituvchisi",
+        "short": "B darajali milliy sertifikat",
+        "full": "GulDUni 2023-yilda tamomlagan. 4 yillik tajribaga ega mutaxassis, matematikadan B darajali milliy sertifikat sohibi. 10 ga yaqin o'quvchining OTMga kirishiga yordam bergan.",
+        "image": "/Ma'ruf Qarshiboyev.JPG",
+    },
+    {
+        "name": "Haqberdiyev Asadbek",
+        "role": "Ona tili o'qituvchisi",
+        "short": "A sertifikat va turk tili B2",
+        "full": "Oliy ma'lumotli, 2-toifali ona tili o'qituvchisi. 4 yillik tajribaga ega. Ona tilidan A daraja va turk tilidan B2 sertifikat sohibi. 20 dan ortiq o'quvchini turk tili va milliy sertifikat yo'nalishlarida yuqori natijaga olib chiqqan.",
+        "image": "/Asadbek-Haqberdiyev.webp",
+    },
+    {
+        "name": "Islom Qahhoraliyev",
+        "role": "Fizika va matematika o'qituvchisi",
+        "short": "2 fandan sertifikat",
+        "full": "Oliy ma'lumotli matematika va fizika o'qituvchisi. Har ikki fandan sertifikatga ega: matematikadan A daraja, fizikadan yuqori natijalarni qo'lga kiritgan. 5 yillik tajribaga ega, 30 dan ortiq o'quvchini yuqori natijaga olib chiqqan.",
+        "image": "/Islom Qahhoraliyev.webp",
+    },
+    {
+        "name": "Umarov Zamira",
+        "role": "Boshlang'ich sinf ingliz tili o'qituvchisi",
+        "short": "IELTS 6.5, rus tili C1",
+        "full": "Rossiyada pedagogika yo'nalishida tahsil olgan. IELTS 6.5, rus tili darajasi C1. 3 yillik tajribaga ega, yuzlab o'quvchilarga ustozlik qilgan.",
+        "image": "/English 2.webp",
+    },
+    {
+        "name": "Shodmatova Nozima",
+        "role": "Boshlang'ich sinf o'qituvchisi",
+        "short": "36 yillik tajriba",
+        "full": "36 yillik tajribaga ega boshlang'ich sinf ustozi. Minglab o'quvchilarga ta'lim bergan, shogirdlari nufuzli ta'lim muassasalari va ish joylarida faoliyat yuritmoqda.",
+        "image": "/Boshlangich1.webp",
+    },
+    {
+        "name": "Mirzayeva Mohidil Abdunaviyevna",
+        "role": "Boshlang'ich sinf o'qituvchisi",
+        "short": "1-toifali ustoz",
+        "full": "Oliy ma'lumotli, 1-toifali boshlang'ich sinf o'qituvchisi. 8 yillik ish tajribasiga ega. O'quvchilari fan olimpiadalarida a'lo natijalarni qayd etgan.",
+        "image": "/Boshlangich.webp",
+    },
+    {
+        "name": "Otaboyeva Shaxnoza",
+        "role": "Rus tili o'qituvchisi",
+        "short": "Rus tilidan C1",
+        "full": "Oliy ma'lumotli rus tili o'qituvchisi. Rus tilidan C1 sertifikatiga ega. 7 yillik ish tajribasiga ega, yuzlab o'quvchilarga rus tilini mukammal o'zlashtirishda yordam bergan.",
+        "image": "/Rus Tili.webp",
+    },
+    {
+        "name": "Raxmatkulova Saboat Berdikulovna",
+        "role": "Oliy toifali boshlang'ich sinf o'qituvchisi",
+        "short": "30 yillik tajriba",
+        "full": "Oliy ma'lumotli, oliy toifali ustoz. 30 yillik tajribaga ega. O'quvchilari fan olimpiadalarida yuqori natijalar qayd etgan. 4 ta sinfni 1-sinfdan 4-sinfgacha yetaklab ta'lim bergan.",
+        "image": "/Boshlangich3.webp",
+    },
+    {
+        "name": "Samijon ustoz",
+        "role": "Tarbiya fani o'qituvchisi",
+        "short": "Arab va ingliz tillari",
+        "full": "Oliy ma'lumotli tarbiya fani o'qituvchisi. Arab va ingliz tillarida erkin muloqot qila oladi. 2017–2021-yillarda O'zbekiston Xalqaro Islom Akademiyasida din sotsiopsixologiyasi yo'nalishida tahsil olgan. 2021–2023-yillarda Mirzo Ulug'bek maktabida, 2023–2025-yillarda Saudiya Arabistonining Makka shahrida faoliyat olib borgan.",
+        "image": "/Tarbiya-ustoz.webp",
+    },
 ]
 
 
@@ -776,23 +914,37 @@ async def school_info(message: Message):
 # USTOZLAR
 # ==================================================
 
+def teachers_intro_text():
+    return (
+        "👨‍🏫 BUXORO MAKTABI JAMOASI\n\n"
+        "Saytdagi jamoamiz bilan tanishing. Kerakli ustozni tanlasangiz, "
+        "uning rasmi va batafsil ma'lumotlari chiqadi."
+    )
+
+
+def teachers_keyboard():
+    buttons = [
+        AiogramInlineKeyboardButton(
+            text=f"{index + 1}. {member['name']}",
+            callback_data=f"teacher:{index}",
+        )
+        for index, member in enumerate(TEAM_MEMBERS)
+    ]
+    rows = [buttons[index:index + 2] for index in range(0, len(buttons), 2)]
+    rows.append([AiogramInlineKeyboardButton(text="🏠 Bosh menyu", callback_data="nav:home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def teacher_detail_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [AiogramInlineKeyboardButton(text="⬅️ Orqaga qaytish", callback_data="teachers:list")],
+        [AiogramInlineKeyboardButton(text="🏠 Bosh menyu", callback_data="nav:home")],
+    ])
+
+
 @dp.message(F.text.in_(button_texts("👨‍🏫 Ustozlar")))
 async def teachers(message: Message):
-    await message.answer(
-        "👨‍🏫 BUXORO MAKTABI USTOZLARI\n\n"
-        "Maktabimizda tajribali, malakali va o‘z fanini "
-        "mukammal biladigan ustozlar faoliyat yuritadi.\n\n"
-        "✅ Milliy va xalqaro sertifikatlarga ega ustozlar\n"
-        "✅ Ko‘p yillik pedagogik tajriba\n"
-        "✅ Zamonaviy o‘qitish metodlari\n"
-        "✅ O‘quvchilarga individual yondashuv\n"
-        "✅ Natijaga yo‘naltirilgan darslar\n"
-        "✅ Doimiy nazorat va tahlil\n"
-        "✅ Ota-onalar bilan muntazam aloqa\n\n"
-        "Har bir o‘quvchining bilim darajasi va "
-        "qobiliyatidan kelib chiqib alohida yondashiladi.",
-        reply_markup=info_back_button(),
-    )
+    await message.answer(teachers_intro_text(), reply_markup=teachers_keyboard())
 
 
 # ==================================================
@@ -1383,6 +1535,42 @@ async def inline_main_menu_handler(call: CallbackQuery, state: FSMContext):
         await handler(actor_message, state)
     else:
         await handler(actor_message)
+    await call.answer()
+
+
+@dp.callback_query(F.data == "teachers:list")
+async def teachers_list_callback(call: CallbackQuery):
+    await call.message.answer(
+        teachers_intro_text(),
+        reply_markup=teachers_keyboard(),
+    )
+    await call.answer()
+
+
+@dp.callback_query(F.data.startswith("teacher:"))
+async def teacher_detail_callback(call: CallbackQuery):
+    try:
+        index = int(call.data.rsplit(":", 1)[1])
+        member = TEAM_MEMBERS[index]
+    except (ValueError, IndexError):
+        return await call.answer("Ustoz ma'lumoti topilmadi", show_alert=True)
+
+    image_url = TEAM_PAGE_BASE + quote(member["image"], safe="/")
+    caption = (
+        f"👨‍🏫 {member['name']}\n"
+        f"📚 {member['role']}\n\n"
+        f"✨ {member['short']}\n\n"
+        f"{member['full']}"
+    )
+    try:
+        await call.message.answer_photo(
+            photo=image_url,
+            caption=caption,
+            reply_markup=teacher_detail_keyboard(),
+        )
+    except Exception as error:
+        print(f"Ustoz rasmi yuborilmadi: {error}", flush=True)
+        await call.message.answer(caption, reply_markup=teacher_detail_keyboard())
     await call.answer()
 
 
