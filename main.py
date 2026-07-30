@@ -28,6 +28,10 @@ from aiogram.types import (
     MessageEntity,
     ReplyKeyboardRemove,
 )
+try:
+    from openai import AsyncOpenAI
+except ImportError:
+    AsyncOpenAI = None
 
 
 # ==================================================
@@ -54,6 +58,13 @@ APPLICATIONS_PATH = Path(__file__).with_name("applications.json")
 # Administrator ma’lumotlari
 ADMIN_PHONE = "+998 94 835 66 66"
 ADMIN_USERNAME = "@bm_qabul"
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+openai_client = (
+    AsyncOpenAI(api_key=OPENAI_API_KEY)
+    if OPENAI_API_KEY and AsyncOpenAI
+    else None
+)
 
 
 bot = Bot(token=TOKEN)
@@ -156,6 +167,7 @@ BUTTON_CATALOG = [
     ("cancel", "❌ Bekor qilish"),
     ("group_bot", "🤖 Botga o‘tish"),
     ("group_admin", "👤 Adminga o‘tish"),
+    ("ai", "🤖 AI yordamchi"),
 ]
 BUTTON_LABELS = dict(BUTTON_CATALOG)
 DESIGN_PAGE_SIZE = 10
@@ -628,6 +640,7 @@ def refresh_keyboards():
             [InlineKeyboardButton(text="🎓 Ta’lim tizimi", callback_data="menu:education"), InlineKeyboardButton(text="🍽 Kun tartibi", callback_data="menu:schedule")],
             [InlineKeyboardButton(text="❓ Savol-javob", callback_data="menu:faq"), InlineKeyboardButton(text="📍 Manzil", callback_data="menu:location")],
             [InlineKeyboardButton(text="☎️ Bog‘lanish", callback_data="menu:contact")],
+            [InlineKeyboardButton(text="🤖 AI yordamchi", callback_data="menu:ai")],
         ],
     )
     cancel_menu = InlineKeyboardMarkup(
@@ -740,6 +753,23 @@ class MessageTemplateForm(StatesGroup):
 class GroupPostForm(StatesGroup):
     text = State()
     caption = State()
+
+
+class AIAssistantForm(StatesGroup):
+    question = State()
+
+
+AI_HISTORY = {}
+AI_SYSTEM_PROMPT = """Siz Buxoro Maktabi Bekobod Telegram botining yordamchisisiz.
+Foydalanuvchi qaysi tilda yozsa, o‘sha tilda javob bering: o‘zbekcha yoki ruscha.
+Maktab haqida faqat botdagi ma’lum va tasdiqlangan ma’lumotlardan foydalaning.
+Maktab kurslari haqida so‘ralsa, kurs narxi 400 000 so‘m ekanini ayting va batafsil ma’lumot uchun administratorga yo‘naltiring.
+Savolga javob topa olmasangiz, taxmin qilmang; administratorga murojaat qilishni tavsiya qiling.
+Javoblarni qisqa, muloyim va tushunarli yozing.
+
+Administrator: @bm_qabul, telefon: +998 94 835 66 66.
+Maktab: Bekobod shahridagi Buxoro Maktabi, 1–11-sinflar, matematika va ingliz tili yo‘nalishlari, qabul va tashrif bot orqali amalga oshiriladi.
+"""
 
 
 ALBUM_BUFFERS = {}
@@ -938,6 +968,62 @@ def teacher_detail_keyboard():
 @dp.message(F.text.in_(button_texts("👨‍🏫 Ustozlar")))
 async def teachers(message: Message):
     await message.answer(teachers_intro_text(), reply_markup=teachers_keyboard())
+
+
+@dp.message(F.text.in_(button_texts("🤖 AI yordamchi")))
+async def ai_start(message: Message, state: FSMContext):
+    await state.set_state(AIAssistantForm.question)
+    if not openai_client:
+        return await message.answer(
+            "AI yordamchi hali ulanmagan. Administratorga murojaat qiling.",
+            reply_markup=info_back_button(),
+        )
+    await message.answer(
+        "🤖 Savolingizni yozing. Men maktab, qabul, narxlar va ustozlar haqida yordam beraman.\n\n"
+        "Kurslar bo‘yicha batafsil ma’lumot uchun administratorga yo‘naltiraman.\n"
+        "Bekor qilish uchun /cancel yuboring.",
+        reply_markup=info_back_button(),
+    )
+
+
+@dp.message(AIAssistantForm.question, Command("cancel"))
+async def ai_cancel(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("AI yordamchi yopildi.", reply_markup=main_menu)
+
+
+@dp.message(AIAssistantForm.question)
+async def ai_question(message: Message, state: FSMContext):
+    if not openai_client:
+        await state.clear()
+        return await message.answer(
+            "AI yordamchi hozircha sozlanmagan. Administrator: @bm_qabul",
+            reply_markup=main_menu,
+        )
+    question = (message.text or "").strip()
+    if not question:
+        return await message.answer("Iltimos, savolingizni matn ko‘rinishida yuboring.")
+
+    user_id = message.from_user.id
+    history = AI_HISTORY.setdefault(user_id, [])
+    history.append({"role": "user", "content": question})
+    history[:] = history[-8:]
+    try:
+        response = await openai_client.responses.create(
+            model=OPENAI_MODEL,
+            instructions=AI_SYSTEM_PROMPT,
+            input=history,
+            max_output_tokens=500,
+        )
+        answer = (response.output_text or "").strip()
+    except Exception as error:
+        print(f"AI javobida xato: {error}", flush=True)
+        answer = "Savolga javob berishda xatolik yuz berdi. Administratorga murojaat qiling: @bm_qabul"
+    if not answer:
+        answer = "Bu savol bo‘yicha administratorga murojaat qiling: @bm_qabul"
+    history.append({"role": "assistant", "content": answer})
+    history[:] = history[-8:]
+    await message.answer(answer, reply_markup=info_back_button())
 
 
 # ==================================================
@@ -1519,6 +1605,7 @@ async def inline_main_menu_handler(call: CallbackQuery, state: FSMContext):
         "faq": frequently_asked_questions,
         "location": location,
         "contact": contact,
+        "ai": ai_start,
     }
     handler = handlers.get(action)
     if not handler:
