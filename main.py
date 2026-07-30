@@ -307,7 +307,7 @@ TEAM_MEMBERS = [
         "image": "/Islom Qahhoraliyev.webp",
     },
     {
-        "name": "Umarov Zamira",
+        "name": "Umarova Zamira",
         "role": "Boshlang'ich sinf ingliz tili o'qituvchisi",
         "short": "IELTS 6.5, rus tili C1",
         "full": "Rossiyada pedagogika yo'nalishida tahsil olgan. IELTS 6.5, rus tili darajasi C1. 3 yillik tajribaga ega, yuzlab o'quvchilarga ustozlik qilgan.",
