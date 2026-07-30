@@ -217,13 +217,6 @@ TEAM_MEMBERS = [
         "image": "/Akmal-Tolkinovich.webp",
     },
     {
-        "name": "Saydullayev Abdumumin",
-        "role": "Matematika o'qituvchisi",
-        "short": "3 karra A+ va SAT 700",
-        "full": "Oliy ma'lumotli matematika o'qituvchisi. Milliy sertifikatni uch marta A+ darajada qo'lga kiritgan. SAT matematika bo'limidan 700 ball olgan. 5 yillik tajribaga ega, shogirdlari A va A+ natijalarga erishgan.",
-        "image": "/Math.webp",
-    },
-    {
         "name": "Mr. Sherzod",
         "role": "Ingliz tili o'qituvchisi",
         "short": "5 yillik tajriba",
