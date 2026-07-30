@@ -1061,23 +1061,31 @@ def teachers_intro_text():
     )
 
 
+def styled_new_button(text, callback_data, design_key=None):
+    return InlineKeyboardButton(
+        text=text,
+        callback_data=callback_data,
+        design_key=design_key,
+    )
+
+
 def teachers_keyboard():
     buttons = [
-        AiogramInlineKeyboardButton(
+        styled_new_button(
             text=f"{index + 1}. {member['name']}",
             callback_data=f"teacher:{index}",
         )
         for index, member in enumerate(TEAM_MEMBERS)
     ]
     rows = [buttons[index:index + 2] for index in range(0, len(buttons), 2)]
-    rows.append([AiogramInlineKeyboardButton(text="🏠 Bosh menyu", callback_data="nav:home")])
+    rows.append([styled_new_button("🏠 Bosh menyu", "nav:home", "home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def teacher_detail_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [AiogramInlineKeyboardButton(text="⬅️ Orqaga qaytish", callback_data="teachers:list")],
-        [AiogramInlineKeyboardButton(text="🏠 Bosh menyu", callback_data="nav:home")],
+        [styled_new_button("⬅️ Orqaga qaytish", "teachers:list", "back")],
+        [styled_new_button("🏠 Bosh menyu", "nav:home", "home")],
     ])
 
 
@@ -1144,27 +1152,27 @@ async def ai_question(message: Message, state: FSMContext):
 
 def kitchen_menu_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [AiogramInlineKeyboardButton(text="👩‍🍳 Oshxona jamoasi", callback_data="kitchen:staff:list")],
-        [AiogramInlineKeyboardButton(text="🥣 Nonushta galereyasi", callback_data="kitchen:gallery:0:0")],
-        [AiogramInlineKeyboardButton(text="🍲 Tushlik galereyasi", callback_data="kitchen:gallery:1:0")],
-        [AiogramInlineKeyboardButton(text="🍪 Poldnik galereyasi", callback_data="kitchen:gallery:2:0")],
-        [AiogramInlineKeyboardButton(text="⬅️ Orqaga qaytish", callback_data="nav:home")],
+        [styled_new_button("👩‍🍳 Oshxona jamoasi", "kitchen:staff:list")],
+        [styled_new_button("🥣 Nonushta galereyasi", "kitchen:gallery:0:0")],
+        [styled_new_button("🍲 Tushlik galereyasi", "kitchen:gallery:1:0")],
+        [styled_new_button("🍪 Poldnik galereyasi", "kitchen:gallery:2:0")],
+        [styled_new_button("⬅️ Orqaga qaytish", "nav:home", "back")],
     ])
 
 
 def kitchen_staff_keyboard():
-    rows = [[AiogramInlineKeyboardButton(
+    rows = [[styled_new_button(
         text=f"{index + 1}. {member['name']}",
         callback_data=f"kitchen:staff:{index}",
     )] for index, member in enumerate(KITCHEN_STAFF)]
-    rows.append([AiogramInlineKeyboardButton(text="⬅️ Oshxona bo‘limiga", callback_data="kitchen:menu")])
+    rows.append([styled_new_button("⬅️ Oshxona bo‘limiga", "kitchen:menu", "back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def kitchen_detail_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [AiogramInlineKeyboardButton(text="⬅️ Orqaga qaytish", callback_data="kitchen:staff:list")],
-        [AiogramInlineKeyboardButton(text="🍽 Oshxona bo‘limi", callback_data="kitchen:menu")],
+        [styled_new_button("⬅️ Orqaga qaytish", "kitchen:staff:list", "back")],
+        [styled_new_button("🍽 Oshxona bo‘limi", "kitchen:menu")],
     ])
 
 
@@ -1175,12 +1183,12 @@ def kitchen_gallery_keyboard(gallery_index, page, total_pages):
         previous = (page - 1) % total_pages
         next_page = (page + 1) % total_pages
         navigation.extend([
-            AiogramInlineKeyboardButton(text="⬅️", callback_data=f"kitchen:gallery:{gallery_index}:{previous}"),
-            AiogramInlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="noop"),
-            AiogramInlineKeyboardButton(text="➡️", callback_data=f"kitchen:gallery:{gallery_index}:{next_page}"),
+            styled_new_button("⬅️", f"kitchen:gallery:{gallery_index}:{previous}", "back"),
+            styled_new_button(f"{page + 1}/{total_pages}", "noop"),
+            styled_new_button("➡️", f"kitchen:gallery:{gallery_index}:{next_page}"),
         ])
         rows.append(navigation)
-    rows.append([AiogramInlineKeyboardButton(text="⬅️ Oshxona bo‘limiga", callback_data="kitchen:menu")])
+    rows.append([styled_new_button("⬅️ Oshxona bo‘limiga", "kitchen:menu", "back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
