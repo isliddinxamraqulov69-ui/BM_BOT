@@ -29,9 +29,11 @@ from aiogram.types import (
     ReplyKeyboardRemove,
 )
 try:
-    from openai import AsyncOpenAI
+    from google import genai
+    from google.genai import types as genai_types
 except ImportError:
-    AsyncOpenAI = None
+    genai = None
+    genai_types = None
 
 
 # ==================================================
@@ -59,11 +61,11 @@ USERS_PATH = Path(__file__).with_name("users.json")
 # Administrator ma’lumotlari
 ADMIN_PHONE = "+998 94 835 66 66"
 ADMIN_USERNAME = "@bm_qabul"
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-openai_client = (
-    AsyncOpenAI(api_key=OPENAI_API_KEY)
-    if OPENAI_API_KEY and AsyncOpenAI
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+gemini_client = (
+    genai.Client(api_key=GEMINI_API_KEY)
+    if GEMINI_API_KEY and genai
     else None
 )
 
@@ -823,7 +825,17 @@ Javoblarni qisqa, muloyim va tushunarli yozing.
 
 Administrator: @bm_qabul, telefon: +998 94 835 66 66.
 Maktab: Bekobod shahridagi Buxoro Maktabi, 1–11-sinflar, matematika va ingliz tili yo‘nalishlari, qabul va tashrif bot orqali amalga oshiriladi.
+Maktabda malakali ustozlar, 08:00–17:00 ta’lim va 2 mahal issiq ovqat mavjud.
+Oshxona bo‘yicha: Mamadaliyeva Ma’mura — oshxona boshlig‘i; Shoira Rahmatullayevna — bosh oshpaz, 33 yillik tajriba; Saydullayeva Sevara — bosh qandolatchi, 5 yillik tajriba.
 """
+AI_SYSTEM_PROMPT += (
+    "\nBotdagi narxlar: 0-sinf — 1 200 000 so‘m; 1–3-sinflar — 1 900 000 so‘m; "
+    "4–11-sinflar — 2 000 000 so‘m.\n"
+    "Ustozlar ro‘yxati: "
+    + "; ".join(f"{item['name']} — {item['role']}" for item in TEAM_MEMBERS)
+    + ".\n"
+    "Oshxona galereyalari: nonushta, tushlik va poldnik.\n"
+)
 
 
 ALBUM_BUFFERS = {}
@@ -1097,7 +1109,7 @@ async def teachers(message: Message):
 @dp.message(F.text.in_(button_texts("🤖 AI yordamchi")))
 async def ai_start(message: Message, state: FSMContext):
     await state.set_state(AIAssistantForm.question)
-    if not openai_client:
+    if not gemini_client:
         return await message.answer(
             "AI yordamchi hali ulanmagan. Administratorga murojaat qiling.",
             reply_markup=info_back_button(),
@@ -1118,7 +1130,7 @@ async def ai_cancel(message: Message, state: FSMContext):
 
 @dp.message(AIAssistantForm.question)
 async def ai_question(message: Message, state: FSMContext):
-    if not openai_client:
+    if not gemini_client:
         await state.clear()
         return await message.answer(
             "AI yordamchi hozircha sozlanmagan. Administrator: @bm_qabul",
@@ -1133,13 +1145,24 @@ async def ai_question(message: Message, state: FSMContext):
     history.append({"role": "user", "content": question})
     history[:] = history[-8:]
     try:
-        response = await openai_client.responses.create(
-            model=OPENAI_MODEL,
-            instructions=AI_SYSTEM_PROMPT,
-            input=history,
-            max_output_tokens=500,
+        contents = [
+            {
+                "role": "model" if item["role"] == "assistant" else "user",
+                "parts": [{"text": item["content"]}],
+            }
+            for item in history
+        ]
+        response = await asyncio.to_thread(
+            gemini_client.models.generate_content,
+            model=GEMINI_MODEL,
+            contents=contents,
+            config=genai_types.GenerateContentConfig(
+                system_instruction=AI_SYSTEM_PROMPT,
+                max_output_tokens=500,
+                temperature=0.2,
+            ),
         )
-        answer = (response.output_text or "").strip()
+        answer = (response.text or "").strip()
     except Exception as error:
         print(f"AI javobida xato: {error}", flush=True)
         answer = "Savolga javob berishda xatolik yuz berdi. Administratorga murojaat qiling: @bm_qabul"
