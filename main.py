@@ -172,6 +172,7 @@ BUTTON_CATALOG = [
     ("group_admin", "👤 Adminga o‘tish"),
     ("ai", "🤖 AI yordamchi"),
     ("kitchen", "🍽 Oshxona"),
+    ("classrooms", "🏫 Sinfxonalar"),
 ]
 BUTTON_LABELS = dict(BUTTON_CATALOG)
 DESIGN_PAGE_SIZE = 10
@@ -395,6 +396,29 @@ KITCHEN_GALLERIES = [
             ]
         ],
     },
+]
+
+CLASSROOMS = [
+    ("Biologiya xonasi", "Fan xonasi", "Biologiya darslari uchun yorug' va tartibli o'quv muhiti.", "/Sinfxonalar/biologiya-xonasi.webp", "Fan xonasi • Ko'rgazmali dars • Qulay muhit"),
+    ("Sinf xonasi", "O'quv xona", "Kunlik dars jarayonlari uchun shinam va yorug' sinf xonasi.", "/Sinfxonalar/img-1997.webp", "Yorug' xona • Partalar • Dars muhiti"),
+    ("Kimyo xonasi", "Laboratoriya", "Kimyo fanidan amaliy va nazariy mashg'ulotlar o'tiladigan xona.", "/Sinfxonalar/kimyo-xona.webp", "Kimyo • Amaliy dars • Fan muhiti"),
+    ("Kimyo laboratoriyasi", "Laboratoriya", "Kimyo darslari uchun jihozlangan qo'shimcha o'quv muhiti.", "/Sinfxonalar/kimyo-xona-2.webp", "Laboratoriya • Tajriba • Nazorat"),
+    ("Maktabgacha tayyorlov yotoqxonasi", "Dam olish xonasi", "Maktabgacha tayyorlov bolalari uchun qulay dam olish xonasi.", "/Sinfxonalar/maktabgacha-tayyorlov-yotoqxonasi.webp", "Yotoqxona • Qulaylik • Tartib"),
+    ("Kichiklar dam olish xonasi", "Dam olish xonasi", "Kichik yoshdagi bolalar uchun toza va osoyishta dam olish muhiti.", "/Sinfxonalar/maktabgacha-tayyorlov-yotoqxona-2.webp", "Dam olish • Tozalik • Nazorat"),
+    ("Maktabgacha tayyorlov xonasi", "Tayyorlov", "Maktabga tayyorlov mashg'ulotlari o'tiladigan maxsus xona.", "/Sinfxonalar/maktabgacha-tayyorlovxonasi.webp", "Tayyorlov • Mashg'ulot • Bolalar muhiti"),
+    ("Oshxona", "Ovqatlanish", "O'quvchilar uchun toza va tartibli ovqatlanish hududi.", "/Sinfxonalar/oshxona.webp", "Tozalik • Ovqatlanish • Keng xona"),
+    ("Ovqatlanish zali", "Ovqatlanish", "Kunlik nonushta, tushlik va poldnik uchun xizmat qiladigan oshxona.", "/Sinfxonalar/oshxona-2.webp", "Sifat • Tartib • Gigiyena"),
+    ("Oshxona hududi", "Ovqatlanish", "Bolalar ovqatlanishi uchun qulay joylashtirilgan oshxona hududi.", "/Sinfxonalar/oshxona-3.webp", "Qulaylik • Kundalik taom • Nazorat"),
+    ("Sog'lom ovqatlanish zali", "Ovqatlanish", "Sog'lom ovqatlanish tartibi yo'lga qo'yilgan oshxona ko'rinishi.", "/Sinfxonalar/oshxona-4.webp", "Sog'lom taom • Tartib • Jamoa"),
+    ("Shinam ovqatlanish muhiti", "Ovqatlanish", "O'quvchilar ovqatlanishi uchun toza va shinam muhit.", "/Sinfxonalar/oshxona-5.webp", "Shinam • Toza • Keng"),
+    ("Maktab oshxonasi", "Ovqatlanish", "Maktab oshxonasi kunlik xizmatga mos tarzda tashkil qilingan.", "/Sinfxonalar/oshxona-6.webp", "Kunlik xizmat • Sifat • Gigiyena"),
+    ("Sinfxona", "O'quv xona", "Ta'lim jarayoni uchun qulay va tartibli sinf xonasi.", "/Sinfxonalar/sinfxona.webp", "Dars • Partalar • Yorug'lik"),
+    ("Zamonaviy sinfxona", "O'quv xona", "Zamonaviy ta'lim jarayonlariga moslashtirilgan xona.", "/Sinfxonalar/sinfxona-2.webp", "Ta'lim • Qulaylik • Tartib"),
+    ("Yorug' o'quv xonasi", "O'quv xona", "O'quvchilar uchun diqqatni jamlashga qulay muhit.", "/Sinfxonalar/sinfxona-3.webp", "O'quv muhiti • Yorug'lik • Sokinlik"),
+    ("Fan mashg'ulotlari xonasi", "O'quv xona", "Fan mashg'ulotlari uchun shinam va tayyor sinf xonasi.", "/Sinfxonalar/sinfxona-4.webp", "Fan darsi • Jihoz • Qulay xona"),
+    ("Stol tennisi zali", "Sport", "O'quvchilarning sport mashg'ulotlari uchun ajratilgan zal.", "/Sinfxonalar/stoltennis-zali.webp", "Sport • Stol tennisi • Faollik"),
+    ("Faol tanaffus hududi", "Sport", "Stol tennisi va faol tanaffuslar uchun qulay sport hududi.", "/Sinfxonalar/stoltennis-zali-2.webp", "Mashg'ulot • Sport zali • Harakat"),
+    ("Tibbiyotxona", "Sog'liq nazorati", "O'quvchilar salomatligini nazorat qilish uchun tibbiyot xonasi.", "/Sinfxonalar/tibbiyotxona.webp", "Tibbiyot • Nazorat • Xavfsizlik"),
 ]
 
 
@@ -696,6 +720,7 @@ def refresh_keyboards():
             [InlineKeyboardButton(text="❓ Savol-javob", callback_data="menu:faq"), InlineKeyboardButton(text="📍 Manzil", callback_data="menu:location")],
             [InlineKeyboardButton(text="☎️ Bog‘lanish", callback_data="menu:contact")],
             [InlineKeyboardButton(text="🍽 Oshxona", callback_data="menu:kitchen")],
+            [InlineKeyboardButton(text="🏫 Sinfxonalar", callback_data="menu:classrooms")],
             [InlineKeyboardButton(text="🤖 AI yordamchi", callback_data="menu:ai")],
         ],
     )
@@ -1301,6 +1326,71 @@ async def kitchen_gallery(call: CallbackQuery):
 # YO‘NALISHLAR
 # ==================================================
 
+def classrooms_keyboard():
+    buttons = [
+        styled_new_button(
+            text=f"{index + 1}. {classroom[0]}",
+            callback_data=f"classroom:{index}",
+        )
+        for index, classroom in enumerate(CLASSROOMS)
+    ]
+    rows = [buttons[index:index + 2] for index in range(0, len(buttons), 2)]
+    rows.append([styled_new_button("⬅️ Orqaga qaytish", "nav:home", "back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def classroom_detail_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [styled_new_button("⬅️ Orqaga qaytish", "classrooms:list", "back")],
+        [styled_new_button("🏠 Bosh menyu", "nav:home", "home")],
+    ])
+
+
+@dp.message(F.text.in_(button_texts("🏫 Sinfxonalar")))
+async def classrooms(message: Message):
+    await message.answer(
+        "🏫 BUXORO MAKTABI SINFXONALARI\n\n"
+        "Har bir xona zamonaviy ta'lim, qulaylik va xavfsizlik talablariga mos tashkil qilingan. "
+        "Kerakli xonani tanlab, rasmi va ma'lumotlarini ko'ring:",
+        reply_markup=classrooms_keyboard(),
+    )
+
+
+@dp.callback_query(F.data == "classrooms:list")
+async def classrooms_list_callback(call: CallbackQuery):
+    await call.message.answer(
+        "🏫 SINFXONALAR RO'YXATI",
+        reply_markup=classrooms_keyboard(),
+    )
+    await call.answer()
+
+
+@dp.callback_query(F.data.startswith("classroom:"))
+async def classroom_detail_callback(call: CallbackQuery):
+    try:
+        index = int(call.data.rsplit(":", 1)[1])
+        name, room_type, description, image, features = CLASSROOMS[index]
+    except (ValueError, IndexError):
+        return await call.answer("Sinfxona ma'lumoti topilmadi", show_alert=True)
+    image_url = TEAM_PAGE_BASE + quote(image, safe="/")
+    caption = (
+        f"🏫 {name}\n"
+        f"📚 Turi: {room_type}\n\n"
+        f"{description}\n\n"
+        f"✅ {features.replace(' • ', chr(10) + '✅ ')}"
+    )
+    try:
+        await call.message.answer_photo(
+            photo=image_url,
+            caption=caption,
+            reply_markup=classroom_detail_keyboard(),
+        )
+    except Exception as error:
+        print(f"Sinfxona rasmi yuborilmadi: {error}", flush=True)
+        await call.message.answer(caption, reply_markup=classroom_detail_keyboard())
+    await call.answer()
+
+
 @dp.message(F.text.in_(button_texts("📚 Yo‘nalishlar")))
 async def directions(message: Message):
     await message.answer(
@@ -1878,6 +1968,7 @@ async def inline_main_menu_handler(call: CallbackQuery, state: FSMContext):
         "contact": contact,
         "ai": ai_start,
         "kitchen": kitchen,
+        "classrooms": classrooms,
     }
     handler = handlers.get(action)
     if not handler:
