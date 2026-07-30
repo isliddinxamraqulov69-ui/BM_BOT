@@ -169,6 +169,7 @@ BUTTON_CATALOG = [
     ("group_bot", "🤖 Botga o‘tish"),
     ("group_admin", "👤 Adminga o‘tish"),
     ("ai", "🤖 AI yordamchi"),
+    ("kitchen", "🍽 Oshxona"),
 ]
 BUTTON_LABELS = dict(BUTTON_CATALOG)
 DESIGN_PAGE_SIZE = 10
@@ -340,6 +341,57 @@ TEAM_MEMBERS = [
         "short": "Arab va ingliz tillari",
         "full": "Oliy ma'lumotli tarbiya fani o'qituvchisi. Arab va ingliz tillarida erkin muloqot qila oladi. 2017–2021-yillarda O'zbekiston Xalqaro Islom Akademiyasida din sotsiopsixologiyasi yo'nalishida tahsil olgan. 2021–2023-yillarda Mirzo Ulug'bek maktabida, 2023–2025-yillarda Saudiya Arabistonining Makka shahrida faoliyat olib borgan.",
         "image": "/Tarbiya-ustoz.webp",
+    },
+]
+
+KITCHEN_STAFF = [
+    {
+        "name": "Mamadaliyeva Ma'mura",
+        "role": "Oshxona boshlig'i",
+        "full": "Oshxona jarayoni, sifat nazorati va bolalar ovqatlanish tartibiga mas'ul.",
+        "image": "/Mamadaliyeva-Mamura.webp",
+    },
+    {
+        "name": "Shoira Rahmatullayevna",
+        "role": "Bosh oshpaz",
+        "full": "Buxoro Maktabi bosh oshpazi. 33 yillik ish tajribasiga ega malakali oshpaz.",
+        "image": "/Shoira-Rahmatullayevna.webp",
+    },
+    {
+        "name": "Saydullayeva Sevara",
+        "role": "Bosh qandolatchi",
+        "full": "5 yillik tajribaga ega mohir qandolatchi. Hozirda Buxoro Maktabining bosh qandolatchisi.",
+        "image": "/Saydullayeva-Sevara.webp",
+    },
+]
+
+KITCHEN_GALLERIES = [
+    {
+        "title": "Maktabgacha tayyorlov nonushtasi",
+        "subtitle": "Nolavoylar uchun nonushta lavhalari",
+        "images": [f"/ovqatlar/nonushta{index}.webp" for index in range(1, 7)],
+    },
+    {
+        "title": "Tushlik",
+        "subtitle": "Issiq taom va kunlik tushliklar",
+        "images": [
+            f"/ovqatlar/obed{index}.webp"
+            for index in [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+        ],
+    },
+    {
+        "title": "Poldnik",
+        "subtitle": "Tushdan keyingi yengil ovqatlar",
+        "images": [
+            f"/ovqatlar/{name}.webp"
+            for name in [
+                "Poldnik1", "poldnik2", "poldnik3", "poldnik4", "poldnik5",
+                "poldnik6", "poldnik7", "poldnik10", "poldnik11", "poldnik12",
+                "poldnik13", "poldnik14", "poldnik15", "poldnik16", "poldnik17",
+                "poldnik18", "poldnik19", "poldnik20", "poldnik21", "poldnik22",
+                "poldnik23", "poldnik24",
+            ]
+        ],
     },
 ]
 
@@ -641,6 +693,7 @@ def refresh_keyboards():
             [InlineKeyboardButton(text="🎓 Ta’lim tizimi", callback_data="menu:education"), InlineKeyboardButton(text="🍽 Kun tartibi", callback_data="menu:schedule")],
             [InlineKeyboardButton(text="❓ Savol-javob", callback_data="menu:faq"), InlineKeyboardButton(text="📍 Manzil", callback_data="menu:location")],
             [InlineKeyboardButton(text="☎️ Bog‘lanish", callback_data="menu:contact")],
+            [InlineKeyboardButton(text="🍽 Oshxona", callback_data="menu:kitchen")],
             [InlineKeyboardButton(text="🤖 AI yordamchi", callback_data="menu:ai")],
         ],
     )
@@ -1087,6 +1140,127 @@ async def ai_question(message: Message, state: FSMContext):
     history.append({"role": "assistant", "content": answer})
     history[:] = history[-8:]
     await message.answer(answer, reply_markup=info_back_button())
+
+
+def kitchen_menu_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [AiogramInlineKeyboardButton(text="👩‍🍳 Oshxona jamoasi", callback_data="kitchen:staff:list")],
+        [AiogramInlineKeyboardButton(text="🥣 Nonushta galereyasi", callback_data="kitchen:gallery:0:0")],
+        [AiogramInlineKeyboardButton(text="🍲 Tushlik galereyasi", callback_data="kitchen:gallery:1:0")],
+        [AiogramInlineKeyboardButton(text="🍪 Poldnik galereyasi", callback_data="kitchen:gallery:2:0")],
+        [AiogramInlineKeyboardButton(text="⬅️ Orqaga qaytish", callback_data="nav:home")],
+    ])
+
+
+def kitchen_staff_keyboard():
+    rows = [[AiogramInlineKeyboardButton(
+        text=f"{index + 1}. {member['name']}",
+        callback_data=f"kitchen:staff:{index}",
+    )] for index, member in enumerate(KITCHEN_STAFF)]
+    rows.append([AiogramInlineKeyboardButton(text="⬅️ Oshxona bo‘limiga", callback_data="kitchen:menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def kitchen_detail_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [AiogramInlineKeyboardButton(text="⬅️ Orqaga qaytish", callback_data="kitchen:staff:list")],
+        [AiogramInlineKeyboardButton(text="🍽 Oshxona bo‘limi", callback_data="kitchen:menu")],
+    ])
+
+
+def kitchen_gallery_keyboard(gallery_index, page, total_pages):
+    rows = []
+    navigation = []
+    if total_pages > 1:
+        previous = (page - 1) % total_pages
+        next_page = (page + 1) % total_pages
+        navigation.extend([
+            AiogramInlineKeyboardButton(text="⬅️", callback_data=f"kitchen:gallery:{gallery_index}:{previous}"),
+            AiogramInlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="noop"),
+            AiogramInlineKeyboardButton(text="➡️", callback_data=f"kitchen:gallery:{gallery_index}:{next_page}"),
+        ])
+        rows.append(navigation)
+    rows.append([AiogramInlineKeyboardButton(text="⬅️ Oshxona bo‘limiga", callback_data="kitchen:menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@dp.message(F.text.in_(button_texts("🍽 Oshxona")))
+async def kitchen(message: Message):
+    await message.answer(
+        "🍽 BUXORO MAKTABI OSHXONASI\n\n"
+        "Sog‘lom va mazali taomlar o‘quvchilarimizning energiyasi va diqqat-e’tibori garovidir.\n\n"
+        "Oshxona jamoasi va taomlar galereyasini tanlang:",
+        reply_markup=kitchen_menu_keyboard(),
+    )
+
+
+@dp.callback_query(F.data == "kitchen:menu")
+async def kitchen_menu_callback(call: CallbackQuery):
+    await call.message.answer(
+        "🍽 Oshxona bo‘limi. Kerakli bo‘limni tanlang:",
+        reply_markup=kitchen_menu_keyboard(),
+    )
+    await call.answer()
+
+
+@dp.callback_query(F.data == "kitchen:staff:list")
+async def kitchen_staff_list(call: CallbackQuery):
+    await call.message.answer(
+        "👩‍🍳 OSHXONA JAMOASI\n\nOshxona xodimlari haqida ma’lumot olish uchun ismni tanlang:",
+        reply_markup=kitchen_staff_keyboard(),
+    )
+    await call.answer()
+
+
+@dp.callback_query(F.data.startswith("kitchen:staff:"))
+async def kitchen_staff_detail(call: CallbackQuery):
+    try:
+        index = int(call.data.rsplit(":", 1)[1])
+        member = KITCHEN_STAFF[index]
+    except (ValueError, IndexError):
+        return await call.answer("Oshxona xodimi topilmadi", show_alert=True)
+    image_url = TEAM_PAGE_BASE + quote(member["image"], safe="/")
+    caption = f"👩‍🍳 {member['name']}\n📚 {member['role']}\n\n{member['full']}"
+    try:
+        await call.message.answer_photo(
+            photo=image_url,
+            caption=caption,
+            reply_markup=kitchen_detail_keyboard(),
+        )
+    except Exception as error:
+        print(f"Oshxona xodimi rasmi yuborilmadi: {error}", flush=True)
+        await call.message.answer(caption, reply_markup=kitchen_detail_keyboard())
+    await call.answer()
+
+
+@dp.callback_query(F.data.startswith("kitchen:gallery:"))
+async def kitchen_gallery(call: CallbackQuery):
+    try:
+        parts = call.data.split(":")
+        gallery_index = int(parts[2])
+        page = int(parts[3])
+        gallery = KITCHEN_GALLERIES[gallery_index]
+    except (ValueError, IndexError):
+        return await call.answer("Galereya topilmadi", show_alert=True)
+    page_size = 10
+    total_pages = max(1, (len(gallery["images"]) + page_size - 1) // page_size)
+    page %= total_pages
+    images = gallery["images"][page * page_size:(page + 1) * page_size]
+    media = [InputMediaPhoto(media=TEAM_PAGE_BASE + quote(path, safe="/")) for path in images]
+    try:
+        await bot.send_media_group(
+            chat_id=call.message.chat.id,
+            media=media,
+        )
+        await call.message.answer(
+            f"🍽 {gallery['title']}\n{gallery['subtitle']}",
+            reply_markup=kitchen_gallery_keyboard(gallery_index, page, total_pages),
+        )
+    except Exception as error:
+        print(f"Oshxona galereyasi yuborilmadi: {error}", flush=True)
+        await call.answer("Galereyani yuborishda xatolik yuz berdi", show_alert=True)
+        return
+    await call.answer()
 
 
 # ==================================================
@@ -1669,6 +1843,7 @@ async def inline_main_menu_handler(call: CallbackQuery, state: FSMContext):
         "location": location,
         "contact": contact,
         "ai": ai_start,
+        "kitchen": kitchen,
     }
     handler = handlers.get(action)
     if not handler:
