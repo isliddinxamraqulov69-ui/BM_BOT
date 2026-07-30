@@ -1880,7 +1880,7 @@ async def inline_main_menu_handler(call: CallbackQuery, state: FSMContext):
     if not handler:
         return await call.answer("Bo‘lim topilmadi", show_alert=True)
     actor_message = call.message.model_copy(update={"from_user": call.from_user})
-    if action in {"registration", "visit"}:
+    if action in {"registration", "visit", "ai"}:
         await handler(actor_message, state)
     else:
         await handler(actor_message)
