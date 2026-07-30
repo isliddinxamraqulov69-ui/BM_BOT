@@ -852,12 +852,19 @@ def remember_user(user):
 def statistics_text():
     users = load_users()
     applications = load_applications()
-    today = datetime.now(timezone(timedelta(hours=5))).strftime("%d.%m.%Y")
-    new_today = sum(str(item.get("first_seen", "")).startswith(today) for item in users)
+    known_ids = {
+        item.get("telegram_id")
+        for item in users
+        if item.get("telegram_id")
+    }
+    known_ids.update(
+        item.get("telegram_id")
+        for item in applications
+        if item.get("telegram_id")
+    )
     return (
         "📊 BOT STATISTIKASI\n\n"
-        f"👥 Jami foydalanuvchilar: {len(users)} ta\n"
-        f"🆕 Bugun qo‘shilganlar: {new_today} ta\n"
+        f"👥 Botdan foydalangan jami odamlar: {len(known_ids)} ta\n"
         f"📝 Jami arizalar: {len(applications)} ta\n"
         f"🤖 AI suhbatlari: {len(AI_HISTORY)} ta"
     )
